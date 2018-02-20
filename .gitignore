@@ -1,0 +1,6 @@
+__test.c
+*.bt
+*.exe
+*.dll
+bin/
+.vscode/
