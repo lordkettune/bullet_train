@@ -11,7 +11,6 @@
 ** Stored in a linked list so they can be reused, avoiding dynamic allocations.
 */
 
-#if 0
 
 struct Call {
     Call* next;
@@ -36,6 +35,8 @@ bt_Thread* thread_new()
     t->call = c;
     return t;
 }
+
+#if 0
 
 /*
 ** Prints a bt_Value to stdout

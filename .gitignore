@@ -3,3 +3,4 @@ __test.c
 *.exe
 *.dll
 bin/
+.vscode/

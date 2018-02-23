@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "bullet_train.h"
+#include "value.h"
 #include "lex.h"
 #include "function.h"
 
@@ -22,6 +23,7 @@ typedef struct {
     // Hideous vector counters. Not much I can do since this ain't C++
     int ps, pr; // Program size, program reserved
     int ds, dr; // Data size, data reserved
+    int regsize; // Number of registers in use
     Local* locals;
 } Parser;
 
@@ -29,10 +31,9 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
 {
     bt_Function* fn = malloc(sizeof(bt_Function));
     fn->program = malloc(sizeof(Instruction) * 4);
-    fn->data = malloc(sizeof(FData) * 4);
-    fn->next = NULL;
+    fn->data = malloc(sizeof(FuncData) * 4);
     fn->params = 0;
-    fn->locals = 0;
+    fn->registers = 0;
     fn->type = FT_FUNC;
     p->fn = fn;
     p->lx = lx;
@@ -60,25 +61,31 @@ static inline int reserve(Parser* p)
     return p->ps - 1;
 }
 
-// Shortcuts for adding instructions with arguments
-#define addopa(p, i, a)     addop(p, (i) | ((a) << 16))
-#define addopab(p, i, a, b) addop(p, (i) | ((b) << 8) | ((a) << 16))
+/* Shortcuts for creating instructions */
+#define rkc(e) ((e.k << 7) | (e.idx << 24))
+#define rkb(e) ((e.k << 6) | (e.idx << 16))
 
-/*
-** Adds an FData to the result, returning the index of the item
-*/
-static int adddata(Parser* p, FData d)
+/* Adds an FData to the result, returning the index of the item */
+static int adddata(Parser* p, FuncData d)
 {
     bt_Function* fn = p->fn;
     fn->data[p->ds++] = d;
     if (p->ds == p->dr) {
         p->dr *= 2;
-        fn->data = realloc(fn->data, sizeof(FData) * p->dr);
+        fn->data = realloc(fn->data, sizeof(FuncData) * p->dr);
     }
     return p->ds - 1;
 }
 
-#define addvalue(p, v) adddata(p, (FData) { .value = (v) })
+static inline int addnumber(Parser* p, BT_NUMBER number)
+{
+    return adddata(p, (FuncData) {
+        .value = (bt_Value) {
+            .number = number,
+            .type = VT_NUMBER
+        }
+    });
+}
 
 /*
 ** Searches for a local variable in the parser's list.
@@ -106,13 +113,11 @@ static Local* newlocal(Parser* p, const char* name)
     l->prev = last;
     l->scope = 0;
     p->locals = l;
-    ++p->fn->locals;
+    ++p->regsize;
     return l;
 }
 
-/*
-** Errors if the next token isn't [tk]
-*/
+/* Errors if the next token isn't [tk] */
 static void expect(Parser* p, int tk)
 {
     if (lex_next(p->lx) != tk) {
@@ -120,9 +125,7 @@ static void expect(Parser* p, int tk)
     }
 }
 
-/*
-** If the next token is [tk], advances the lexer and returns true
-*/
+/* If the next token is [tk], advances the lexer and returns true */
 static int accept(Parser* p, int tk)
 {
     if (lex_peek(p->lx) == tk) {
@@ -138,179 +141,53 @@ static int accept(Parser* p, int tk)
 ** ============================================================
 */
 
-static inline void expression(Parser* p);
-static void statement(Parser* p);
+typedef struct {
+    int idx; // Index of register/constant
+    int k;  // Is a constant?
+} ExpData;
 
-/*
-** Adds a value to the function data, as well as a push instruction
-*/
-static void literal(Parser* p, bt_Value v)
-{
-    int index = adddata(p, (FData) { .value = v });
-    addopa(p, OP_PUSH, index);
-}
+#define expdata(i, k) (ExpData) { (i), (k) }
+
+static inline ExpData expression(Parser* p);
 
 /*
 ** Smallest unit of parsing.
 ** Literals, function calls, things in parentheses
 */
-static void atom(Parser* p)
+static ExpData atom(Parser* p)
 {
     switch (lex_next(p->lx))
     {
         case TK_NUMBER:
-            literal(p, (bt_Value) { .number = lex_getnumber(p->lx), .type = VT_NUMBER });
-            break;
-        case TK_TRUE:
-            addopa(p, OP_PUSHBOOL, 1);
-            break;
-        case TK_FALSE:
-            addopa(p, OP_PUSHBOOL, 0);
-            break;
-        case TK_NIL:
-            addop(p, OP_PUSHNIL);
-            break;
-        case TK_ID: {
-            const char* name = lex_gettext(p->lx);
-            Local* l = findlocal(p, name);
-            addopa(p, OP_LOAD, l->idx);
-            break;
-        }
-        case '!':
-            expression(p);
-            addop(p, OP_NOT);
-            break;
-        case '-':
-            expression(p);
-            addop(p, OP_NEG);
-            break;
-        case '(':
-            expression(p);
-            expect(p, ')');
-            break;
+            return expdata(addnumber(p, lex_getnumber(p->lx)), 1);
     }
+    return expdata(0, 0);
 }
-
-#define optrue  (1 << 16)
-#define opfalse (0 << 16)
 
 /*
 ** Mathematical/logical expression.
 ** Uses the precedence climbing algorithm.
 */
-static void exprclimb(Parser* p, int min)
+static ExpData exprclimb(Parser* p, int min)
 {
-    atom(p);
-    for (;;) {
-        int prec;
-        Instruction inst;
-        switch (lex_peek(p->lx))
-        {
-            case '*':    prec = 6; inst = OP_MUL;   break;
-            case '/':    prec = 6; inst = OP_DIV;   break;
-            case '+':    prec = 5; inst = OP_ADD;   break;
-            case '-':    prec = 5; inst = OP_SUB;   break;
-            case '>':    prec = 4; inst = OP_LEQUAL | opfalse; break;
-            case '<':    prec = 4; inst = OP_LESS   | optrue;  break;
-            case TK_ME:  prec = 4; inst = OP_LESS   | opfalse; break;
-            case TK_LE:  prec = 4; inst = OP_LEQUAL | optrue;  break;
-            case TK_NE:  prec = 3; inst = OP_EQUAL  | opfalse; break;
-            case TK_EQ:  prec = 3; inst = OP_EQUAL  | optrue;  break;
-            case TK_AND: prec = 2; inst = OP_AND;   break;
-            case TK_OR:  prec = 1; inst = OP_OR;    break;
-            default: return;
-        }
-        if (prec >= min) {
-            lex_next(p->lx);
-            exprclimb(p, prec + 1);
-            addop(p, inst);
-        } else
-            return;
-    }
+    ExpData lhs = atom(p);
+    return lhs;
 }
 
-/* Just a shortcut */
-static inline void expression(Parser* p) { exprclimb(p, 0); }
+static inline ExpData expression(Parser* p) { return exprclimb(p, 0); }
 
-/*
-** Variable set/declaration or function call
-*/
-static void varstmt(Parser* p)
-{
-    const char* name = lex_gettext(p->lx);
-    Local* l = findlocal(p, name);
-    if (l == NULL) {
-        l = newlocal(p, name);
-    }
-    expect(p, '=');
-    expression(p);
-    addopa(p, OP_STORE, l->idx);
-}
-
-/*
-** A bunch of statements within a pair of brackets
-*/
-static void block(Parser* p)
-{
-    expect(p, '{');
-    while (!accept(p, '}')) {
-        statement(p);
-    }
-}
-
-/* Sets the instruction at [i] as a jump to the parser's current instruction */
-#define setjump(p, i, op) p->fn->program[i] = op | (p->ps << 16)
-
-/*
-** If-elif-else block
-*/
-static void conditionblock(Parser* p)
-{
-    expression(p);
-    int jump = reserve(p); // Position of the JUMPIF instruction
-    block(p);
-    int tk = lex_peek(p->lx);
-    if (tk == TK_ELIF || tk == TK_ELSE) {
-        lex_next(p->lx);
-        int end = reserve(p); // Position of the JUMP to the end of the block
-        setjump(p, jump, OP_JUMPIF);
-        if (tk == TK_ELIF) {
-            conditionblock(p);
-        } else {
-            block(p);
-        }
-        setjump(p, end, OP_JUMP);
-    } else {
-        setjump(p, jump, OP_JUMPIF);
-    }
-}
-
-static void whileblock(Parser* p)
-{
-    int position = p->ps; // Start of the while loop
-    expression(p);
-    int jump = reserve(p); // Position of the JUMP back to the start
-    block(p);
-    addopa(p, OP_JUMP, position);
-    setjump(p, jump, OP_JUMPIF);
-}
 
 static void statement(Parser* p)
 {
     switch (lex_next(p->lx))
     {
-        case TK_PRINT:
-            expression(p);
-            addop(p, OP_PRINT);
+        case TK_PRINT: {
+            ExpData e = expression(p);
+            addop(p, OP_PRINT | rkc(e));
             break;
-        case TK_ID:
-            varstmt(p);
-            break;
-        case TK_IF:
-            conditionblock(p);
-            break;
-        case TK_WHILE:
-            whileblock(p);
+        }
+
+        default:
             break;
     }
 }
@@ -334,12 +211,12 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     lex_free(lx);
 
     bt_Function* fn = p.fn;
-/*
+
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
-        printf("%i: %i  %i  %i\n", i, op & 0xff, (op >> 8) & 0xff, op >> 16);
+        printf("%i: %i %i%i %i %i %i\n", i, op & 0x3f, (op >> 6) & 1, (op >> 7) & 1, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
-*/
+
     return fn;
 }
 

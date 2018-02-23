@@ -21,11 +21,8 @@ enum {
 ** - 1 bit indicating if arg B refers to a register or a constant
 ** - 1 bit indicating if arg C refers to a register or a constant
 ** - 8 bits for arg A, arg B, and arg C
-** OR
-** - 8 bits for arg A, and 16 bits for arg BX
 ** | opcode |kb|kc|   arg A    |   arg B   |   arg C   |
-** | opcode |kb|kc|   arg A    |         arg BX        |
-** Note that kb and kc are not used in every instruction
+** Note that kb and kc are not used in every instruction.
 */
 typedef unsigned long Instruction;
 
