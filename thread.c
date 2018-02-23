@@ -10,6 +10,9 @@
 ** Basically just acts as a stack frame.
 ** Stored in a linked list so they can be reused, avoiding dynamic allocations.
 */
+
+#if 0
+
 struct Call {
     Call* next;
     Call* previous;
@@ -103,7 +106,7 @@ static int tobool(bt_Value* vl)
 
 /*
 ** ============================================================
-** Bullet Train's amazing grand deluxe main interpreter
+** The interpreter, Bullet Train's heart and soul
 ** ============================================================
 */
 
@@ -129,119 +132,20 @@ Refresh:
         Instruction i = *ip++;
         switch (i & 0xFF)
         {
-            case OP_PUSH: {
-                *sp++ = fn->data[i >> 16].value;
+            default:
                 break;
-            }
-            case OP_PUSHBOOL: {
-                *sp++ = boolval(i >> 16);
-                break;
-            }
-            case OP_PUSHNIL: {
-                (sp++)->type = VT_NIL;
-                break;
-            }
-
-            case OP_LOAD: {
-                *sp++ = c->base[i >> 16];
-                break;
-            }
-            case OP_STORE: {
-                c->base[i >> 16] = *(--sp);
-                break;
-            }
-
-            case OP_ADD: {
-                --sp;
-                (sp - 1)->number += sp->number;
-                break;
-            }
-            case OP_SUB: {
-                --sp;
-                (sp - 1)->number -= sp->number;
-                break;
-            }
-            case OP_MUL: {
-                --sp;
-                (sp - 1)->number *= sp->number;
-                break;
-            }
-            case OP_DIV: {
-                --sp;
-                (sp - 1)->number /= sp->number;
-                break;
-            }
-
-            case OP_NEG: {
-                (sp - 1)->number *= -1;
-                break;
-            }
-            case OP_NOT: {
-                *(sp - 1) = boolval(!tobool(sp - 1));
-                break;
-            }
-
-            case OP_EQUAL: {
-                --sp;
-                *(sp - 1) = boolval(equal(sp - 1, sp) == (i >> 16));
-                break;
-            }
-            case OP_LESS: {
-                --sp;
-                *(sp - 1) = boolval(less(sp - 1, sp) == (i >> 16));
-                break;
-            }
-            case OP_LEQUAL: {
-                --sp;
-                *(sp - 1) = boolval(lequal(sp - 1, sp) == (i >> 16));
-                break;
-            }
-
-            case OP_AND: {
-                --sp;
-                *(sp - 1) = boolval(tobool(sp - 1) && tobool(sp));
-                break;
-            }
-            case OP_OR: {
-                --sp;
-                *(sp - 1) = boolval(tobool(sp - 1) || tobool(sp));
-                break;
-            }
-
-            case OP_JUMP: {
-                ip = fn->program + (i >> 16);
-                break;
-            }
-            case OP_JUMPIF: {
-                --sp;
-                if (!tobool(sp)) {
-                    ip = fn->program + (i >> 16);
-                }
-                break;
-            }
-
-            case OP_CALL: {
-                goto Refresh;
-            }
-            case OP_RETURN: {
-                return 1;
-            }
-
-            case OP_PRINT: {
-                printvalue(--sp);
-                break;
-            }
         }
     }
 
     return 0;
 }
 
+#endif
 
 // Temp?
 BT_API void bt_call(bt_Context* bt, bt_Function* fn)
 {
-    bt_Thread* t = ctx_getthread(bt);
+    /* bt_Thread* t = ctx_getthread(bt);
     Call* c = t->call;
     bt_Closure* cl = malloc(sizeof(bt_Closure));
     cl->function = fn;
@@ -249,5 +153,5 @@ BT_API void bt_call(bt_Context* bt, bt_Function* fn)
     c->ip = fn->program;
     t->sp = c->base + fn->locals;
     thread_execute(bt, t);
-    free(cl);
+    free(cl); */
 }
