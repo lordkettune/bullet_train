@@ -112,6 +112,7 @@ static int tobool(bt_Value* vl)
 // Shortcuts
 #define arga(i) ((i >> 8) & 0xFF)
 #define argb(i) ((i >> 16) & 0xFF)
+#define argbx(i) (i >> 16)
 #define argc(i) (i >> 24)
 
 #define dest(i) reg[arga(i)]
@@ -139,6 +140,15 @@ Refresh:
         Instruction i = *c->ip++;
         switch (i & 0x3F)
         {
+            case OP_LOAD: {
+                dest(i) = data[argbx(i)].value;
+                break;
+            }
+            case OP_MOVE: {
+                dest(i) = reg[argbx(i)];
+                break;
+            }
+
             case OP_ADD: {
                 bt_Value* lhs = rkb(i);
                 bt_Value* rhs = rkc(i);

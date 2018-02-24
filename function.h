@@ -8,6 +8,7 @@
 /* VM instructions */
 enum {
     OP_LOAD,
+    OP_MOVE,
     OP_ADD,
     OP_SUB,
     OP_MUL,
@@ -24,6 +25,9 @@ enum {
 ** - 1 bit indicating if arg C refers to a register or a constant
 ** - 8 bits for arg A, arg B, and arg C
 ** | opcode |kb|kc|   arg A    |   arg B   |   arg C   |
+** OR
+** - 16 bits for arg BX
+** | opcode |kb|kc|   arg A    |        arg BX         |
 ** Note that kb and kc are not used in every instruction.
 */
 typedef unsigned long Instruction;

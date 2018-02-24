@@ -85,6 +85,14 @@ static inline int addnumber(Parser* p, BT_NUMBER number)
 }
 
 /*
+** Increment/decrement register.
+** The number of registers needed by the resulting function is the 
+** highest number p->reg reaches.
+*/
+#define nextreg(p) if (p->reg++ == p->fn->registers) { ++p->fn->registers; }
+#define prevreg(p) --p->reg;
+
+/*
 ** Searches for a local variable in the parser's list.
 ** Returns NULL if it doesn't exist.
 */
@@ -105,12 +113,11 @@ static Local* newlocal(Parser* p, const char* name)
 {
     Local* l = malloc(sizeof(Local) + strlen(name) + 1);
     strcpy(l->name, name);
-    Local* last = p->locals;
-    l->idx = last ? last->idx + 1 : 0;
-    l->prev = last;
+    l->idx = p->reg;
+    l->prev = p->locals;
     l->scope = 0;
     p->locals = l;
-    ++p->reg;
+    nextreg(p); // Register now in use by variable, move to next
     return l;
 }
 
@@ -146,6 +153,7 @@ typedef struct {
 /* Some shortcuts */
 #define argkc(e) ((e.k << 7) | (e.idx << 24))
 #define argkb(e) ((e.k << 6) | (e.idx << 16))
+#define argbx(b) ((b) << 16)
 #define arga(d)  ((d) << 8)
 #define expdata(i, k) (ExpData) { (i), (k) }
 
@@ -161,6 +169,11 @@ static ExpData atom(Parser* p)
     {
         case TK_NUMBER:
             return expdata(addnumber(p, lex_getnumber(p->lx)), 1);
+        case TK_ID: {
+            const char* name = lex_gettext(p->lx);
+            Local* l = findlocal(p, name);
+            return expdata(l->idx, 0);
+        }
         default: // Error
             return expdata(0, 0);
     }
@@ -169,8 +182,9 @@ static ExpData atom(Parser* p)
 /*
 ** Mathematical/logical expression.
 ** Uses the precedence climbing algorithm.
+** [dest] is the preferred register the expression should route to.
 */
-static ExpData exprclimb(Parser* p, int min)
+static ExpData exprclimb(Parser* p, int min, int dest)
 {
     ExpData lhs = atom(p);
     for (;;) {
@@ -186,23 +200,44 @@ static ExpData exprclimb(Parser* p, int min)
         }
         if (prec >= min) {
             lex_next(p->lx);
-            int dest = p->reg++;
-            ExpData rhs = exprclimb(p, prec + 1);
+            nextreg(p);
+            ExpData rhs = exprclimb(p, prec + 1, p->reg);
             addop(p, inst | arga(dest) | argkb(lhs) | argkc(rhs));
             lhs = expdata(dest, 0);
-            --p->reg;
+            prevreg(p);
         } else
             return lhs;
     }
 }
+static inline ExpData expression(Parser* p) { return exprclimb(p, 0, p->reg); }
 
-static inline ExpData expression(Parser* p) { return exprclimb(p, 0); }
-
+/*
+** Variable set, declaration, or function call
+*/
+static void varstmt(Parser* p)
+{
+    const char* name = lex_gettext(p->lx);
+    Local* l = findlocal(p, name);
+    if (l == NULL) { // Variable doesn't exist yet
+        l = newlocal(p, name);
+    }
+    expect(p, '=');
+    ExpData e = exprclimb(p, 0, l->idx);
+    if (e.k) {
+        addop(p, OP_LOAD | arga(l->idx) | argbx(e.idx));
+    } else if (e.idx != l->idx) {
+        addop(p, OP_MOVE | arga(l->idx) | argbx(e.idx));
+    }
+} 
 
 static void statement(Parser* p)
 {
     switch (lex_next(p->lx))
     {
+        case TK_ID: {
+            varstmt(p);
+            break;
+        }
         case TK_PRINT: {
             ExpData e = expression(p);
             addop(p, OP_PRINT | argkc(e));
