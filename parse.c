@@ -23,7 +23,7 @@ typedef struct {
     // Hideous vector counters. Not much I can do since this ain't C++
     int ps, pr; // Program size, program reserved
     int ds, dr; // Data size, data reserved
-    int regsize; // Number of registers in use
+    int reg; // Current register
     Local* locals;
 } Parser;
 
@@ -40,6 +40,7 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->ctx = ctx;
     p->ps = 0; p->pr = 4;
     p->ds = 0; p->dr = 4;
+    p->reg = 0;
     p->locals = NULL;
 }
 
@@ -60,10 +61,6 @@ static inline int reserve(Parser* p)
     addop(p, 0);
     return p->ps - 1;
 }
-
-/* Shortcuts for creating instructions */
-#define rkc(e) ((e.k << 7) | (e.idx << 24))
-#define rkb(e) ((e.k << 6) | (e.idx << 16))
 
 /* Adds an FData to the result, returning the index of the item */
 static int adddata(Parser* p, FuncData d)
@@ -143,9 +140,13 @@ static int accept(Parser* p, int tk)
 
 typedef struct {
     int idx; // Index of register/constant
-    int k;  // Is a constant?
+    int k;  // Is a cnstant?
 } ExpData;
 
+/* Some shortcuts */
+#define argkc(e) ((e.k << 7) | (e.idx << 24))
+#define argkb(e) ((e.k << 6) | (e.idx << 16))
+#define arga(d)  ((d) << 8)
 #define expdata(i, k) (ExpData) { (i), (k) }
 
 static inline ExpData expression(Parser* p);
@@ -160,8 +161,9 @@ static ExpData atom(Parser* p)
     {
         case TK_NUMBER:
             return expdata(addnumber(p, lex_getnumber(p->lx)), 1);
+        default: // Error
+            return expdata(0, 0);
     }
-    return expdata(0, 0);
 }
 
 /*
@@ -171,7 +173,27 @@ static ExpData atom(Parser* p)
 static ExpData exprclimb(Parser* p, int min)
 {
     ExpData lhs = atom(p);
-    return lhs;
+    for (;;) {
+        int prec;
+        Instruction inst;
+        switch (lex_peek(p->lx))
+        {
+            case '*': prec = 6; inst = OP_MUL; break;
+            case '/': prec = 6; inst = OP_DIV; break;
+            case '+': prec = 5; inst = OP_ADD; break;
+            case '-': prec = 5; inst = OP_SUB; break;
+            default: return lhs;
+        }
+        if (prec >= min) {
+            lex_next(p->lx);
+            int dest = p->regsize++;
+            ExpData rhs = exprclimb(p, prec + 1);
+            addop(p, inst | arga(dest) | argkb(lhs) | argkc(rhs));
+            lhs = expdata(dest, 0);
+            --p->regsize;
+        } else
+            return lhs;
+    }
 }
 
 static inline ExpData expression(Parser* p) { return exprclimb(p, 0); }
@@ -183,11 +205,10 @@ static void statement(Parser* p)
     {
         case TK_PRINT: {
             ExpData e = expression(p);
-            addop(p, OP_PRINT | rkc(e));
+            addop(p, OP_PRINT | argkc(e));
             break;
         }
-
-        default:
+        default: // ERROR
             break;
     }
 }
@@ -223,14 +244,9 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
 /* Loads a file and compiles it */
 BT_API bt_Function* bt_fcompile(bt_Context* bt, const char* path)
 {
-    int size;
+    char buffer[512 + 1]; // BAD, FIX IT YOU FUCK
     FILE* file = fopen(path, "r");
-    fseek(file, 0, SEEK_END);
-    size = ftell(file);
-    rewind(file);
-    char buffer[size + 1];
-    fread(buffer, 1, size, file);
-    fclose(file);
+    size_t size = fread(buffer, 1, 512, file);
     buffer[size] = 0;
     return bt_compile(bt, buffer);
 }

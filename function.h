@@ -8,8 +8,10 @@
 /* VM instructions */
 enum {
     OP_LOAD,
-    OP_LOADBOOL,
-    OP_LOADNIL,
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
     OP_PRINT,
     OP_RETURN
 };
