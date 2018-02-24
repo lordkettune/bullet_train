@@ -10,8 +10,6 @@
 ** Basically just acts as a stack frame.
 ** Stored in a linked list so they can be reused, avoiding dynamic allocations.
 */
-
-
 struct Call {
     Call* next;
     Call* previous;
@@ -26,8 +24,8 @@ bt_Thread* thread_new()
     bt_Thread* t = malloc(sizeof(bt_Thread));
     t->next = NULL;
     t->timer = 0;
-    t->sp = t->stack = malloc(sizeof(bt_Value) * 32);
-    t->stack_size = 32;
+    t->stack = malloc(sizeof(bt_Value) * 32);
+    t->stacksize = 32;
     Call* c = malloc(sizeof(Call));
     c->previous = NULL;
     c->next = NULL;
@@ -35,8 +33,6 @@ bt_Thread* thread_new()
     t->call = c;
     return t;
 }
-
-#if 0
 
 /*
 ** Prints a bt_Value to stdout
@@ -52,6 +48,7 @@ static void printvalue(bt_Value* vl)
     }
 }
 
+#if 0
 /*
 ** Test for equality of two bt_Values
 */
@@ -104,6 +101,7 @@ static int tobool(bt_Value* vl)
 }
 
 #define boolval(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
+#endif
 
 /*
 ** ============================================================
@@ -111,48 +109,85 @@ static int tobool(bt_Value* vl)
 ** ============================================================
 */
 
+// Shortcuts
+#define arga(i) ((i >> 8) & 0xFF)
+#define argb(i) ((i >> 16) & 0xFF)
+#define argc(i) (i >> 24)
+
+#define dest(i) reg[arga(i)]
+#define rkb(i) (i & 0x40 ? &data[argb(i)].value : &reg[argb(i)])
+#define rkc(i) (i & 0x80 ? &data[argc(i)].value : &reg[argc(i)])
+
+#define number(n) ((bt_Value) { .number = (n), .type = VT_NUMBER })
+
 /*
 ** Main loop of the interpreter
 */
 int thread_execute(bt_Context* bt, bt_Thread* t)
 {
     Call* c;
-    bt_Function* fn;
-    // These two are stored locally to slightly speed up access
-    bt_Value* sp;
-    Instruction* ip;
+    FuncData* data;
+    bt_Value* reg;
 
 Refresh:
     c = t->call;
-    fn = c->closure->function;
-    sp = t->sp;
-    ip = c->ip;
+    reg = c->base;
+    data = c->closure->function->data;
 
     for (;;)
     {
-        Instruction i = *ip++;
-        switch (i & 0xFF)
+        Instruction i = *c->ip++;
+        switch (i & 0x3F)
         {
-            default:
+            case OP_ADD: {
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number + rhs->number);
                 break;
+            }
+            case OP_SUB: {
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number - rhs->number);
+                break;
+            }
+            case OP_MUL: {
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number * rhs->number);
+                break;
+            }
+            case OP_DIV: {
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number / rhs->number);
+                break;
+            }
+
+            case OP_RETURN: {
+                return 1;
+            }
+
+            case OP_PRINT: {
+                printvalue(rkc(i));
+                break;
+            }
         }
     }
 
     return 0;
 }
 
-#endif
 
 // Temp?
 BT_API void bt_call(bt_Context* bt, bt_Function* fn)
 {
-    /* bt_Thread* t = ctx_getthread(bt);
+    bt_Thread* t = ctx_getthread(bt);
     Call* c = t->call;
     bt_Closure* cl = malloc(sizeof(bt_Closure));
     cl->function = fn;
     c->closure = cl;
     c->ip = fn->program;
-    t->sp = c->base + fn->locals;
     thread_execute(bt, t);
-    free(cl); */
+    free(cl);
 }

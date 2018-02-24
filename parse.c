@@ -110,7 +110,7 @@ static Local* newlocal(Parser* p, const char* name)
     l->prev = last;
     l->scope = 0;
     p->locals = l;
-    ++p->regsize;
+    ++p->reg;
     return l;
 }
 
@@ -186,11 +186,11 @@ static ExpData exprclimb(Parser* p, int min)
         }
         if (prec >= min) {
             lex_next(p->lx);
-            int dest = p->regsize++;
+            int dest = p->reg++;
             ExpData rhs = exprclimb(p, prec + 1);
             addop(p, inst | arga(dest) | argkb(lhs) | argkc(rhs));
             lhs = expdata(dest, 0);
-            --p->regsize;
+            --p->reg;
         } else
             return lhs;
     }
@@ -232,12 +232,12 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     lex_free(lx);
 
     bt_Function* fn = p.fn;
-
+/*
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
         printf("%i: %i %i%i %i %i %i\n", i, op & 0x3f, (op >> 6) & 1, (op >> 7) & 1, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
-
+*/
     return fn;
 }
 

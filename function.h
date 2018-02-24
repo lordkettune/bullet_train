@@ -33,7 +33,7 @@ typedef enum {
     FT_FUNC, // Normal function
     FT_TASK, // Function that kicks off into a new thread
     FT_GEN   // A "traditional" coroutine
-} FType;
+} FuncType;
 
 /* Data not small enough to fit in an instruction */
 typedef union {
@@ -52,7 +52,7 @@ struct bt_Function {
     FuncData* data;
     int params; // Number of parameters
     int registers; // Number of registers needed by this function
-    FType type; // Type of function (func, task, or gen)
+    FuncType type; // Type of function (func, task, or gen)
 };
 
 #endif
