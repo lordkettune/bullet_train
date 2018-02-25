@@ -84,13 +84,8 @@ static inline int addnumber(Parser* p, BT_NUMBER number)
     });
 }
 
-/*
-** Increment/decrement register.
-** The number of registers needed by the resulting function is the 
-** highest number p->reg reaches.
-*/
-#define nextreg(p) if (p->reg++ == p->fn->registers) { ++p->fn->registers; }
-#define prevreg(p) --p->reg;
+/* Ensures the function's register count is at least [s] */
+#define checkreg(p, s) if (s > p->fn->registers) p->fn->registers = s
 
 /*
 ** Searches for a local variable in the parser's list.
@@ -113,11 +108,11 @@ static Local* newlocal(Parser* p, const char* name)
 {
     Local* l = malloc(sizeof(Local) + strlen(name) + 1);
     strcpy(l->name, name);
-    l->idx = p->reg;
+    l->idx = p->reg++;
     l->prev = p->locals;
     l->scope = 0;
     p->locals = l;
-    nextreg(p); // Register now in use by variable, move to next
+    checkreg(p, p->reg); // Ensure there are enough registers
     return l;
 }
 
@@ -157,13 +152,13 @@ typedef struct {
 #define arga(d)  ((d) << 8)
 #define expdata(i, k) (ExpData) { (i), (k) }
 
-static inline ExpData expression(Parser* p);
+static ExpData exprclimb(Parser* p, int min, int dest);
 
 /*
 ** Smallest unit of parsing.
 ** Literals, function calls, things in parentheses
 */
-static ExpData atom(Parser* p)
+static ExpData atom(Parser* p, int dest)
 {
     switch (lex_next(p->lx))
     {
@@ -173,6 +168,11 @@ static ExpData atom(Parser* p)
             const char* name = lex_gettext(p->lx);
             Local* l = findlocal(p, name);
             return expdata(l->idx, 0);
+        }
+        case '(': {
+            ExpData e = exprclimb(p, 0, dest);
+            expect(p, ')');
+            return e;
         }
         default: // Error
             return expdata(0, 0);
@@ -186,7 +186,7 @@ static ExpData atom(Parser* p)
 */
 static ExpData exprclimb(Parser* p, int min, int dest)
 {
-    ExpData lhs = atom(p);
+    ExpData lhs = atom(p, dest);
     for (;;) {
         int prec;
         Instruction inst;
@@ -200,11 +200,10 @@ static ExpData exprclimb(Parser* p, int min, int dest)
         }
         if (prec >= min) {
             lex_next(p->lx);
-            nextreg(p);
-            ExpData rhs = exprclimb(p, prec + 1, p->reg);
+            checkreg(p, dest);
+            ExpData rhs = exprclimb(p, prec + 1, dest + 1);
             addop(p, inst | arga(dest) | argkb(lhs) | argkc(rhs));
             lhs = expdata(dest, 0);
-            prevreg(p);
         } else
             return lhs;
     }
@@ -267,12 +266,13 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     lex_free(lx);
 
     bt_Function* fn = p.fn;
-/*
+
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
         printf("%i: %i %i%i %i %i %i\n", i, op & 0x3f, (op >> 6) & 1, (op >> 7) & 1, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
-*/
+    printf("registers: %i\n", fn->registers);
+
     return fn;
 }
 
