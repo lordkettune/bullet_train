@@ -44,6 +44,24 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->locals = NULL;
 }
 
+/*
+** Shrinks the function's vectors and deallocates locals.
+** Returns the finalized function.
+*/
+static bt_Function* finalize(Parser* p)
+{
+    bt_Function* fn = p->fn;
+    fn->program = realloc(fn->program, sizeof(Instruction) * p->ps);
+    fn->data = realloc(fn->data, sizeof(FuncData) * p->ds);
+    Local* l = p->locals;
+    while (l != NULL) {
+        Local* temp = l->prev;
+        free(l);
+        l = temp;
+    }
+    return fn;
+}
+
 /* Adds an instruction to the result */
 static void addop(Parser* p, Instruction i)
 {
@@ -269,8 +287,7 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     }
     addop(&p, OP_RETURN);
     lex_free(lx);
-
-    bt_Function* fn = p.fn;
+    bt_Function* fn = finalize(&p);
 
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
