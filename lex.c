@@ -150,6 +150,14 @@ Retry:
                 return TK_OR;
             }
             return '|';
+        
+        case '-':
+            // Negative number literal?
+            if (isdigit(*(lx->current + 1))) { 
+                return scannumber(lx);
+            }
+            ++lx->current;
+            return '-';
 
         default:
             if (isdigit(*lx->current)) {
