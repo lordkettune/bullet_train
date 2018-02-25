@@ -13,6 +13,8 @@ enum {
     OP_SUB,
     OP_MUL,
     OP_DIV,
+    OP_NEG,
+    OP_NOT,
     OP_PRINT,
     OP_RETURN
 };

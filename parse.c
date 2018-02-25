@@ -174,6 +174,11 @@ static ExpData atom(Parser* p, int dest)
             expect(p, ')');
             return e;
         }
+        case '-': {
+            ExpData e = atom(p, dest);
+            addop(p, OP_NEG | arga(dest) | argkc(e));
+            return expdata(dest, 0);
+        }
         default: // Error
             return expdata(0, 0);
     }

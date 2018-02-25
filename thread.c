@@ -174,6 +174,12 @@ Refresh:
                 break;
             }
 
+            case OP_NEG: {
+                bt_Value* vl = rkc(i);
+                dest(i) = number(-vl->number);
+                break;
+            }
+
             case OP_RETURN: {
                 return 1;
             }
