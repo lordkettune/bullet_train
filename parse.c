@@ -180,6 +180,8 @@ typedef struct {
 
 static void exprclimb(Parser* p, ExpData* lhs, int min);
 
+#define expression(p, e) exprclimb(p, e, 0)
+
 /* Routes the result of an expression to register [dest] */
 static void route(Parser* p, ExpData* e, int dest)
 {
@@ -287,13 +289,6 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
     }
 }
 
-static void expression(Parser* p, int dest)
-{
-    ExpData e;
-    exprclimb(p, &e, 0);
-    route(p, &e, dest);
-}
-
 /*
 ** ============================================================
 ** Statement parsing
@@ -307,11 +302,13 @@ static void varstmt(Parser* p)
     Local* l = findlocal(p, name);
     int dest = l == NULL ? newlocal(p, name) : l->idx; // Local undeclared?
     expect(p, '=');
-    expression(p, dest);
+    ExpData e;
+    expression(p, &e);
+    route(p, &e, dest);
     if (l == NULL) {
         ++p->emptyreg; // Empty register now in use by new local
     }
-} 
+}
 
 static void statement(Parser* p)
 {
@@ -322,8 +319,9 @@ static void statement(Parser* p)
             break;
         }
         case TK_PRINT: {
-            // ExpData e = expression(p, p->emptyreg);
-            // addop(p, OP_PRINT | argkc(e));
+            ExpData e;
+            expression(p, &e);
+            addop(p, OP_PRINT | argkc(p, &e));
             break;
         }
         default: // ERROR
