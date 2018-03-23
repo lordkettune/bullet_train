@@ -80,6 +80,13 @@ static inline int reserve(Parser* p)
     return p->ps - 1;
 }
 
+/*
+** Sets arg A in the previous instruction.
+** Arg A is used as the destination register in every instruction
+** that has one, so this is safe to do.
+*/
+#define setdest(p, d) p->fn->program[p->ps - 1] |= ((d) << 8)
+
 /* Adds an FData to the result, returning the index of the item */
 static int adddata(Parser* p, FuncData d)
 {
@@ -146,14 +153,14 @@ static void expect(Parser* p, int tk)
 
 /*
 ** ============================================================
-** Recursive descent parser stuff
+** Expression parsing
 ** ============================================================
 */
 
 // Expression types
 enum {
     EX_CONST, // Constant
-    EX_VAR, // Local variable
+    EX_REG, // Register (usually a local variable)
     EX_ROUTE // Instruction that can be routed directly to a register
 };
 
@@ -166,13 +173,63 @@ typedef struct {
 } ExpData;
 
 /* Some shortcuts */
-#define argkc(e) ((e.k << 7) | (e.idx << 24))
-#define argkb(e) ((e.k << 6) | (e.idx << 16))
 #define argbx(b) ((b) << 16)
 #define arga(d)  ((d) << 8)
-#define expdata(i, k) (ExpData) { (i), (k) }
 
 static void exprclimb(Parser* p, ExpData* lhs, int min);
+
+/*
+** Routes the result of an expression to register [dest]
+*/
+static void route(Parser* p, ExpData* e, int dest)
+{
+    switch (e->type)
+    {
+        case EX_CONST: {
+            int idx = addconstant(p, e->value);
+            addop(p, OP_LOAD | arga(dest) | argbx(idx));
+            break;
+        }
+        case EX_REG:
+            if (e->reg != dest) {
+                addop(p, OP_MOVE | arga(dest) | argbx(e->reg));
+            }
+            break;
+        case EX_ROUTE:
+            setdest(p, dest);
+            break;
+    }
+}
+
+static void toargk(Parser* p, ExpData* e, int* k, int* idx)
+{
+    if (e->type == EX_CONST) {
+        *k = 1;
+        *idx = addconstant(p, e->value);
+    } else {
+        *k = 0;
+        if (e->type == EX_REG) {
+            *idx = e->reg;
+        } else {
+            route(p, e, p->emptyreg);
+            *idx = p->emptyreg;
+        }
+    }
+}
+
+static int argkb(Parser* p, ExpData* e)
+{
+    int k, idx;
+    toargk(p, e, &k, &idx);
+    return (k << 6) | (idx << 16);
+}
+
+static int argkc(Parser* p, ExpData* e)
+{
+    int k, idx;
+    toargk(p, e, &k, &idx);
+    return (k << 7) | (idx << 24);
+}
 
 /*
 ** Smallest unit of parsing.
@@ -190,7 +247,7 @@ static void atom(Parser* p, ExpData* e)
             const char* name = lex_gettext(p->lx);
             Local* l = findlocal(p, name);
             e->reg = l->idx;
-            e->type = EX_VAR;
+            e->type = EX_REG;
             return;
         }
         default: // Error
@@ -217,11 +274,14 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
             default: return;
         }
         if (prec >= min) {
-            /* lex_next(p->lx);
-            ExpData rhs = exprclimb(p, prec + 1, p->emptyreg++);
-            addop(p, inst | arga(dest) | argkb(lhs) | argkc(rhs));
-            lhs = expdata(dest, 0);
-            --p->emptyreg; */
+            lex_next(p->lx);
+            ExpData rhs;
+            int kb = argkb(p, lhs);
+            ++p->emptyreg;
+            exprclimb(p, &rhs, prec + 1);
+            addop(p, inst | kb | argkc(p, &rhs)); // Destination will be set later
+            --p->emptyreg;
+            lhs->type = EX_ROUTE;
         } else
             return;
     }
@@ -231,17 +291,7 @@ static void expression(Parser* p, int dest)
 {
     ExpData e;
     exprclimb(p, &e, 0);
-    switch (e.type)
-    {
-        case EX_CONST: {
-            int idx = addconstant(p, e.value);
-            addop(p, OP_LOAD | arga(dest) | argbx(idx));
-            break;
-        }
-        case EX_VAR:
-            addop(p, OP_MOVE | arga(dest) | argbx(e.reg));
-            break;
-    }
+    route(p, &e, dest);
 }
 
 /*
