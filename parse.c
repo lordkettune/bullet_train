@@ -23,7 +23,7 @@ typedef struct {
     // Hideous vector counters. Not much I can do since this ain't C++
     int ps, pr; // Program size, program reserved
     int ds, dr; // Data size, data reserved
-    int reg; // Current register
+    int emptyreg; // Index of first empty register
     Local* locals;
 } Parser;
 
@@ -40,7 +40,7 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->ctx = ctx;
     p->ps = 0; p->pr = 4;
     p->ds = 0; p->dr = 4;
-    p->reg = 0;
+    p->emptyreg = 0;
     p->locals = NULL;
 }
 
@@ -92,18 +92,10 @@ static int adddata(Parser* p, FuncData d)
     return p->ds - 1;
 }
 
-static inline int addnumber(Parser* p, BT_NUMBER number)
-{
-    return adddata(p, (FuncData) {
-        .value = (bt_Value) {
-            .number = number,
-            .type = VT_NUMBER
-        }
-    });
-}
+#define addconstant(p, c) (adddata(p, (FuncData) { .value = (c) }))
 
-/* Ensures the function's register count is at least [s] */
-#define checkreg(p, s) if (s > p->fn->registers) p->fn->registers = s
+/* Ensures the function's register count is enough to use register [s] */
+#define checkreg(p, s) if (s >= p->fn->registers) p->fn->registers = s + 1
 
 /*
 ** Searches for a local variable in the parser's list.
@@ -126,11 +118,11 @@ static Local* newlocal(Parser* p, const char* name)
 {
     Local* l = malloc(sizeof(Local) + strlen(name) + 1);
     strcpy(l->name, name);
-    l->idx = p->reg++;
+    l->idx = p->emptyreg++;
     l->prev = p->locals;
     l->scope = 0;
     p->locals = l;
-    checkreg(p, p->reg); // Ensure there are enough registers
+    // checkreg(p, p->reg); // Ensure there are enough registers
     return l;
 }
 
@@ -143,14 +135,14 @@ static void expect(Parser* p, int tk)
 }
 
 /* If the next token is [tk], advances the lexer and returns true */
-static int accept(Parser* p, int tk)
+/* static int accept(Parser* p, int tk)
 {
     if (lex_peek(p->lx) == tk) {
         lex_next(p->lx);
         return 1;
     }
     return 0;
-}
+} */
 
 /*
 ** ============================================================
@@ -158,9 +150,19 @@ static int accept(Parser* p, int tk)
 ** ============================================================
 */
 
+// Expression types
+enum {
+    EX_CONST, // Constant
+    EX_VAR, // Local variable
+    EX_ROUTE // Instruction that can be routed directly to a register
+};
+
 typedef struct {
-    int idx; // Index of register/constant
-    int k;  // Is a cnstant?
+    union {
+        bt_Value value;
+        int reg;
+    };
+    int type;
 } ExpData;
 
 /* Some shortcuts */
@@ -170,46 +172,39 @@ typedef struct {
 #define arga(d)  ((d) << 8)
 #define expdata(i, k) (ExpData) { (i), (k) }
 
-static ExpData exprclimb(Parser* p, int min, int dest);
+static void exprclimb(Parser* p, ExpData* lhs, int min);
 
 /*
 ** Smallest unit of parsing.
-** Literals, function calls, things in parentheses
+** Literals, function calls, things in parentheses.
 */
-static ExpData atom(Parser* p, int dest)
+static void atom(Parser* p, ExpData* e)
 {
     switch (lex_next(p->lx))
     {
         case TK_NUMBER:
-            return expdata(addnumber(p, lex_getnumber(p->lx)), 1);
+            e->value = (bt_Value) { .number = lex_getnumber(p->lx), .type = VT_NUMBER };
+            e->type = EX_CONST;
+            return;
         case TK_ID: {
             const char* name = lex_gettext(p->lx);
             Local* l = findlocal(p, name);
-            return expdata(l->idx, 0);
-        }
-        case '(': {
-            ExpData e = exprclimb(p, 0, dest);
-            expect(p, ')');
-            return e;
-        }
-        case '-': {
-            ExpData e = atom(p, dest);
-            addop(p, OP_NEG | arga(dest) | argkc(e));
-            return expdata(dest, 0);
+            e->reg = l->idx;
+            e->type = EX_VAR;
+            return;
         }
         default: // Error
-            return expdata(0, 0);
+            return;
     }
 }
 
 /*
 ** Mathematical/logical expression.
-** Uses the precedence climbing algorithm.
-** [dest] is the preferred register the expression should route to.
+** Uses precedence climbing.
 */
-static ExpData exprclimb(Parser* p, int min, int dest)
+static void exprclimb(Parser* p, ExpData* lhs, int min)
 {
-    ExpData lhs = atom(p, dest);
+    atom(p, lhs);
     for (;;) {
         int prec;
         Instruction inst;
@@ -219,19 +214,35 @@ static ExpData exprclimb(Parser* p, int min, int dest)
             case '/': prec = 6; inst = OP_DIV; break;
             case '+': prec = 5; inst = OP_ADD; break;
             case '-': prec = 5; inst = OP_SUB; break;
-            default: return lhs;
+            default: return;
         }
         if (prec >= min) {
-            lex_next(p->lx);
-            checkreg(p, dest);
-            ExpData rhs = exprclimb(p, prec + 1, dest + 1);
+            /* lex_next(p->lx);
+            ExpData rhs = exprclimb(p, prec + 1, p->emptyreg++);
             addop(p, inst | arga(dest) | argkb(lhs) | argkc(rhs));
             lhs = expdata(dest, 0);
+            --p->emptyreg; */
         } else
-            return lhs;
+            return;
     }
 }
-static inline ExpData expression(Parser* p) { return exprclimb(p, 0, p->reg); }
+
+static void expression(Parser* p, int dest)
+{
+    ExpData e;
+    exprclimb(p, &e, 0);
+    switch (e.type)
+    {
+        case EX_CONST: {
+            int idx = addconstant(p, e.value);
+            addop(p, OP_LOAD | arga(dest) | argbx(idx));
+            break;
+        }
+        case EX_VAR:
+            addop(p, OP_MOVE | arga(dest) | argbx(e.reg));
+            break;
+    }
+}
 
 /*
 ** Variable set, declaration, or function call
@@ -241,15 +252,10 @@ static void varstmt(Parser* p)
     const char* name = lex_gettext(p->lx);
     Local* l = findlocal(p, name);
     if (l == NULL) { // Variable doesn't exist yet
-        l = newlocal(p, name);
+        l = newlocal(p, name); // TODO: better use of emptyreg
     }
     expect(p, '=');
-    ExpData e = exprclimb(p, 0, l->idx);
-    if (e.k) {
-        addop(p, OP_LOAD | arga(l->idx) | argbx(e.idx));
-    } else if (e.idx != l->idx) {
-        addop(p, OP_MOVE | arga(l->idx) | argbx(e.idx));
-    }
+    expression(p, l->idx);
 } 
 
 static void statement(Parser* p)
@@ -261,8 +267,8 @@ static void statement(Parser* p)
             break;
         }
         case TK_PRINT: {
-            ExpData e = expression(p);
-            addop(p, OP_PRINT | argkc(e));
+            // ExpData e = expression(p, p->emptyreg);
+            // addop(p, OP_PRINT | argkc(e));
             break;
         }
         default: // ERROR
@@ -288,13 +294,13 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     addop(&p, OP_RETURN);
     lex_free(lx);
     bt_Function* fn = finalize(&p);
-/*
+
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
-        printf("%i: %i %i%i %i %i %i\n", i, op & 0x3f, (op >> 6) & 1, (op >> 7) & 1, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
+        printf("|%i| %i %i %i %i\n", i, op & 0x3f, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
     printf("registers: %i\n", fn->registers);
-*/
+
     return fn;
 }
 
