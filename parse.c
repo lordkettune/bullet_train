@@ -120,17 +120,19 @@ static Local* findlocal(Parser* p, const char* name)
     return NULL;
 }
 
-/* Creates a new local and adds it to the parser's list */
-static Local* newlocal(Parser* p, const char* name)
+/*
+** Creates a new local and adds it to the parser's list
+** Returns the index of the local's register
+*/
+static int newlocal(Parser* p, const char* name)
 {
     Local* l = malloc(sizeof(Local) + strlen(name) + 1);
     strcpy(l->name, name);
-    l->idx = p->emptyreg++;
+    l->idx = p->emptyreg; // New locals use the first empty register
     l->prev = p->locals;
     l->scope = 0;
     p->locals = l;
-    // checkreg(p, p->reg); // Ensure there are enough registers
-    return l;
+    return l->idx;
 }
 
 /* Errors if the next token isn't [tk] */
@@ -178,9 +180,7 @@ typedef struct {
 
 static void exprclimb(Parser* p, ExpData* lhs, int min);
 
-/*
-** Routes the result of an expression to register [dest]
-*/
+/* Routes the result of an expression to register [dest] */
 static void route(Parser* p, ExpData* e, int dest)
 {
     switch (e->type)
@@ -295,17 +295,22 @@ static void expression(Parser* p, int dest)
 }
 
 /*
-** Variable set, declaration, or function call
+** ============================================================
+** Statement parsing
+** ============================================================
 */
+
+/* Variable set, declaration, or function call */
 static void varstmt(Parser* p)
 {
     const char* name = lex_gettext(p->lx);
     Local* l = findlocal(p, name);
-    if (l == NULL) { // Variable doesn't exist yet
-        l = newlocal(p, name); // TODO: better use of emptyreg
-    }
+    int dest = l == NULL ? newlocal(p, name) : l->idx; // Local undeclared?
     expect(p, '=');
-    expression(p, l->idx);
+    expression(p, dest);
+    if (l == NULL) {
+        ++p->emptyreg; // Empty register now in use by new local
+    }
 } 
 
 static void statement(Parser* p)
