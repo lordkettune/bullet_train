@@ -163,7 +163,9 @@ static void expect(Parser* p, int tk)
 enum {
     EX_CONST, // Constant
     EX_REG, // Register (usually a local variable)
-    EX_ROUTE // Instruction that can be routed directly to a register
+    EX_ROUTE, // Instruction that can be routed directly to a register
+    EX_TRUE, // Boolean true
+    EX_FALSE // Boolean false
 };
 
 typedef struct {
@@ -199,6 +201,12 @@ static void route(Parser* p, ExpData* e, int dest)
             break;
         case EX_ROUTE:
             setdest(p, dest);
+            break;
+        case EX_TRUE:
+            addop(p, OP_LOADBOOL | arga(dest) | argbx(1));
+            break;
+        case EX_FALSE:
+            addop(p, OP_LOADBOOL | arga(dest) | argbx(0));
             break;
     }
 }
@@ -244,16 +252,18 @@ static void atom(Parser* p, ExpData* e)
         case TK_NUMBER:
             e->value = (bt_Value) { .number = lex_getnumber(p->lx), .type = VT_NUMBER };
             e->type = EX_CONST;
-            return;
+            break;
         case TK_ID: {
             const char* name = lex_gettext(p->lx);
             Local* l = findlocal(p, name);
             e->reg = l->idx;
             e->type = EX_REG;
-            return;
+            break;
         }
+        case TK_TRUE: e->type = EX_TRUE; break;
+        case TK_FALSE: e->type = EX_FALSE; break;
         default: // Error
-            return;
+            break;
     }
 }
 
@@ -348,11 +358,11 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     lex_free(lx);
     bt_Function* fn = finalize(&p);
 
-    for (int i = 0; i != p.ps; ++i) {
+    /* for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
         printf("|%i| %i %i %i %i\n", i, op & 0x3f, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
-    printf("registers: %i\n", fn->registers);
+    printf("registers: %i\n", fn->registers); */
 
     return fn;
 }

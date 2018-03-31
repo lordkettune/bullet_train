@@ -120,6 +120,7 @@ static int tobool(bt_Value* vl)
 #define rkc(i) (i & 0x80 ? &data[argc(i)].value : &reg[argc(i)])
 
 #define number(n) ((bt_Value) { .number = (n), .type = VT_NUMBER })
+#define boolean(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
 
 /*
 ** Main loop of the interpreter
@@ -144,6 +145,11 @@ Refresh:
                 dest(i) = data[argbx(i)].value;
                 break;
             }
+            case OP_LOADBOOL: {
+                dest(i) = boolean(argbx(i));
+                break;
+            }
+
             case OP_MOVE: {
                 dest(i) = reg[argbx(i)];
                 break;
