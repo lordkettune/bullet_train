@@ -147,6 +147,7 @@ Refresh:
             }
             case OP_LOADBOOL: {
                 dest(i) = boolean(argbx(i));
+                c->ip += arga(i);
                 break;
             }
 
@@ -204,6 +205,7 @@ Refresh:
 // Temp?
 BT_API void bt_call(bt_Context* bt, bt_Function* fn)
 {
+    return;
     bt_Thread* t = ctx_getthread(bt);
     Call* c = t->call;
     bt_Closure* cl = malloc(sizeof(bt_Closure));
