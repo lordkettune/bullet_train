@@ -15,7 +15,7 @@ enum {
     OP_MUL,
     OP_DIV,
     OP_NEG,
-    OP_NOT,
+    OP_EQUAL,
     OP_PRINT,
     OP_RETURN
 };

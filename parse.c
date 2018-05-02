@@ -178,8 +178,9 @@ typedef struct {
 } ExpData;
 
 /* Some shortcuts */
-#define argbx(b) ((b) << 16)
-#define arga(d)  ((d) << 8)
+#define arga(a)  ((a) << 8)
+#define argb(b)  ((b) << 16)
+#define argc(c)  ((c) << 24)
 
 static void exprclimb(Parser* p, ExpData* lhs, int min);
 
@@ -192,22 +193,26 @@ static void route(Parser* p, ExpData* e, int dest)
     {
         case EX_CONST: {
             int idx = addconstant(p, e->value);
-            addop(p, OP_LOAD | arga(dest) | argbx(idx));
+            addop(p, OP_LOAD | arga(dest) | argb(idx));
             break;
         }
         case EX_REG:
             if (e->reg != dest) {
-                addop(p, OP_MOVE | arga(dest) | argbx(e->reg));
+                addop(p, OP_MOVE | arga(dest) | argb(e->reg));
             }
             break;
         case EX_ROUTE:
             setdest(p, dest);
             break;
         case EX_TRUE:
-            addop(p, OP_LOADBOOL | arga(dest) | argbx(1));
+            addop(p, OP_LOADBOOL | arga(dest) | argb(1));
             break;
         case EX_FALSE:
-            addop(p, OP_LOADBOOL | arga(dest) | argbx(0));
+            addop(p, OP_LOADBOOL | arga(dest) | argb(0));
+            break;
+        case EX_LOGIC:
+            addop(p, OP_LOADBOOL | arga(dest) | argb(0) | argc(1));
+            addop(p, OP_LOADBOOL | arga(dest) | argb(1));
             break;
     }
 }
@@ -277,13 +282,16 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
     atom(p, lhs);
     for (;;) {
         int prec;
+        int ty;
         Instruction inst;
         switch (lex_peek(p->lx))
         {
-            case '*': prec = 6; inst = OP_MUL; break;
-            case '/': prec = 6; inst = OP_DIV; break;
-            case '+': prec = 5; inst = OP_ADD; break;
-            case '-': prec = 5; inst = OP_SUB; break;
+            case '*': prec = 6; inst = OP_MUL; ty = EX_ROUTE; break;
+            case '/': prec = 6; inst = OP_DIV; ty = EX_ROUTE; break;
+            case '+': prec = 5; inst = OP_ADD; ty = EX_ROUTE; break;
+            case '-': prec = 5; inst = OP_SUB; ty = EX_ROUTE; break;
+            case TK_EQ: prec = 3; inst = OP_EQUAL | arga(1); ty = EX_LOGIC; break;
+            case TK_NE: prec = 3; inst = OP_EQUAL; ty = EX_LOGIC; break;
             default: return;
         }
         if (prec >= min) {
@@ -294,7 +302,7 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
             exprclimb(p, &rhs, prec + 1);
             addop(p, inst | kb | argkc(p, &rhs)); // Destination will be set later
             --p->emptyreg;
-            lhs->type = EX_ROUTE;
+            lhs->type = ty;
         } else
             return;
     }
@@ -358,13 +366,13 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     addop(&p, OP_RETURN);
     lex_free(lx);
     bt_Function* fn = finalize(&p);
-
+/*
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
         printf("|%i| %i %i %i %i\n", i, op & 0x3f, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
     printf("registers: %i\n", fn->registers);
-
+*/
     return fn;
 }
 

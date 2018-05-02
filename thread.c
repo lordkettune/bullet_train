@@ -48,7 +48,6 @@ static void printvalue(bt_Value* vl)
     }
 }
 
-#if 0
 /*
 ** Test for equality of two bt_Values
 */
@@ -66,6 +65,7 @@ static int equal(bt_Value* l, bt_Value* r)
     return 0;
 }
 
+#if 0
 /*
 ** Less than comparison
 ** Errors if values are incompatible
@@ -146,8 +146,8 @@ Refresh:
                 break;
             }
             case OP_LOADBOOL: {
-                dest(i) = boolean(argbx(i));
-                c->ip += arga(i);
+                dest(i) = boolean(argb(i));
+                c->ip += argc(i);
                 break;
             }
 
@@ -187,6 +187,13 @@ Refresh:
                 break;
             }
 
+            case OP_EQUAL: {
+                if (equal(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
+                break;
+            }
+
             case OP_RETURN: {
                 return 1;
             }
@@ -205,7 +212,7 @@ Refresh:
 // Temp?
 BT_API void bt_call(bt_Context* bt, bt_Function* fn)
 {
-    return;
+    // return;
     bt_Thread* t = ctx_getthread(bt);
     Call* c = t->call;
     bt_Closure* cl = malloc(sizeof(bt_Closure));
