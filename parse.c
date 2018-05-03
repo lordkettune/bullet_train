@@ -18,12 +18,6 @@ struct Local {
     char name[];
 };
 
-// Information about a jump instruction that needs to be set later
-struct Patch {
-    int op; // Index of instruction
-    int jtf; // Jump if true or false
-};
-
 typedef struct {
     bt_Context* ctx;
     bt_Function* fn;
@@ -33,9 +27,10 @@ typedef struct {
     int ds, dr; // Data size, data reserved
     int emptyreg; // Index of first empty register
     Local* locals;
-    // Patch list
-    struct Patch patch_list[MAX_PATCHES];
-    int patch; // Top of patch lisst
+    // Patch lists
+    int patch_true[MAX_PATCHES];
+    int patch_false[MAX_PATCHES];
+    int ptrue, pfalse; // Size of lists
 } Parser;
 
 static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
@@ -53,7 +48,7 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->ds = 0; p->dr = 4;
     p->emptyreg = 0;
     p->locals = NULL;
-    p->patch = 0;
+    p->ptrue = p->pfalse = 0;
 }
 
 /*
@@ -85,6 +80,11 @@ static void addop(Parser* p, Instruction i)
     }
 }
 
+/* Some shortcuts */
+#define arga(a)  ((a) << 8)
+#define argb(b)  ((b) << 16)
+#define argc(c)  ((c) << 24)
+
 /* Returns the index of an empty instruction to be set later */
 static inline int reserve(Parser* p)
 {
@@ -92,12 +92,32 @@ static inline int reserve(Parser* p)
     return p->ps - 1;
 }
 
-/* Reserves an instruction and pushes a patch onto the patch list */
-static void reservepatch(Parser* p, int jtf)
+#define setreserved(p, i, op) p->fn->program[i] = (op)
+
+/*
+** Reserves an instruction and pushes a patch onto either 
+** the true or false list, as indicated by [pt]
+*/
+static void reservepatch(Parser* p, int pt)
 {
     int op = reserve(p);
-    p->patch_list[p->patch++] = (struct Patch) { .op = op, .jtf = jtf };
+    if (pt) {
+        p->patch_true[p->ptrue++] = op;
+    } else {
+        p->patch_false[p->pfalse++] = op;
+    }
 }
+
+/* Jumps true patches to the current instruction */
+static void patchfalse(Parser* p, int pf)
+{
+    while (p->pfalse-- > pf) {
+        int op = p->patch_false[p->pfalse];
+        setreserved(p, op, OP_JUMP | argb(p->ps));
+    }
+}
+
+/* Jumps false patches to the current instruction */
 
 /*
 ** Sets arg A in the previous instruction.
@@ -163,14 +183,14 @@ static void expect(Parser* p, int tk)
 }
 
 /* If the next token is [tk], advances the lexer and returns true */
-/* static int accept(Parser* p, int tk)
+static int accept(Parser* p, int tk)
 {
     if (lex_peek(p->lx) == tk) {
         lex_next(p->lx);
         return 1;
     }
     return 0;
-} */
+}
 
 /*
 ** ============================================================
@@ -193,20 +213,16 @@ typedef struct {
         bt_Value value;
         int reg; // Register
     };
-    int pl; // Patch list
+    int pt, pf; // Patch lists
     int type;
 } ExpData;
-
-/* Some shortcuts */
-#define arga(a)  ((a) << 8)
-#define argb(b)  ((b) << 16)
-#define argc(c)  ((c) << 24)
 
 static void exprclimb(Parser* p, ExpData* lhs, int min);
 
 static void expression(Parser* p, ExpData* e)
 {
-    e->pl = p->patch;
+    e->pt = p->ptrue;
+    e->pf = p->pfalse;
     exprclimb(p, e, 0);
 }
 
@@ -239,10 +255,15 @@ static void route(Parser* p, ExpData* e, int dest)
             addop(p, OP_LOADBOOL | arga(dest) | argb(0) | argc(1));
             addop(p, OP_LOADBOOL | arga(dest) | argb(1));
             // Close earlier patches
-            while (p->patch > e->pl) {
-                struct Patch* pt = &p->patch_list[--p->patch];
-                int jmp = p->ps - pt->op - 1; // Jump distance
-                p->fn->program[pt->op] = OP_LOADBOOL | arga(dest) | argb(pt->jtf) | argc(jmp);
+            while (p->pfalse-- > e->pf) {
+                int op = p->patch_false[p->pfalse];
+                int jump = p->ps - op - 1;
+                setreserved(p, op, OP_LOADBOOL | arga(dest) | argb(0) | argc(jump));
+            }
+            while (p->ptrue-- > e->pt) {
+                int op = p->patch_true[p->ptrue];
+                int jump = p->ps - op - 1;
+                setreserved(p, op, OP_LOADBOOL | arga(dest) | argb(1) | argc(jump));
             }
             break;
     }
@@ -375,6 +396,8 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
 ** ============================================================
 */
 
+static void block(Parser* p);
+
 /* Variable set, declaration, or function call */
 static void varstmt(Parser* p)
 {
@@ -390,14 +413,23 @@ static void varstmt(Parser* p)
     }
 }
 
+/* if-elif-else block */
+static void ifstmt(Parser* p)
+{
+    ExpData e;
+    expression(p, &e);
+    int ins = reserve(p);
+    block(p);
+    setreserved(p, ins, OP_JUMP | argb(p->ps));
+    patchfalse(p, e.pf);
+}
+
 static void statement(Parser* p)
 {
     switch (lex_next(p->lx))
     {
-        case TK_ID: {
-            varstmt(p);
-            break;
-        }
+        case TK_ID: varstmt(p); break;
+        case TK_IF: ifstmt(p); break;
         case TK_PRINT: {
             ExpData e;
             expression(p, &e);
@@ -406,6 +438,15 @@ static void statement(Parser* p)
         }
         default: // ERROR
             break;
+    }
+}
+
+/* Block of code in brackets */
+static void block(Parser* p)
+{
+    expect(p, '{');
+    while (!accept(p, '}')) {
+        statement(p);
     }
 }
 
