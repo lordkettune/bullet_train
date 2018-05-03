@@ -418,6 +418,7 @@ static void ifstmt(Parser* p)
 {
     ExpData e;
     expression(p, &e);
+    checklogic(p, &e);
     int ins = reserve(p);
     block(p);
     if (accept(p, TK_ELSE)) {
@@ -438,12 +439,26 @@ static void ifstmt(Parser* p)
     }
 }
 
+static void whileloop(Parser* p)
+{
+    ExpData e;
+    int start = p->ps;
+    expression(p, &e);
+    checklogic(p, &e);
+    int ins = reserve(p);
+    block(p);
+    addop(p, OP_JUMP | argb(start));
+    setreserved(p, ins, OP_JUMP | argb(p->ps));
+    patchfalse(p, e.pf);
+}
+
 static void statement(Parser* p)
 {
     switch (lex_next(p->lx))
     {
         case TK_ID: varstmt(p); break;
         case TK_IF: ifstmt(p); break;
+        case TK_WHILE: whileloop(p); break;
         case TK_PRINT: {
             ExpData e;
             expression(p, &e);
@@ -459,9 +474,10 @@ static void statement(Parser* p)
 static void block(Parser* p)
 {
     expect(p, '{');
-    while (!accept(p, '}')) {
+    while (lex_peek(p->lx) != '}') {
         statement(p);
     }
+    expect(p, '}');
 }
 
 /*
