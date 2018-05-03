@@ -413,15 +413,29 @@ static void varstmt(Parser* p)
     }
 }
 
-/* if-elif-else block */
+/* if statement */
 static void ifstmt(Parser* p)
 {
     ExpData e;
     expression(p, &e);
     int ins = reserve(p);
     block(p);
-    setreserved(p, ins, OP_JUMP | argb(p->ps));
-    patchfalse(p, e.pf);
+    if (accept(p, TK_ELSE)) {
+        setreserved(p, ins, OP_JUMP | argb(p->ps + 1));
+        ins = reserve(p);
+        patchfalse(p, e.pf);
+        block(p);
+        setreserved(p, ins, OP_JUMP | argb(p->ps));
+    } else if (accept(p, TK_ELIF)) {
+        setreserved(p, ins, OP_JUMP | argb(p->ps + 1));
+        ins = reserve(p);
+        patchfalse(p, e.pf);
+        ifstmt(p);
+        setreserved(p, ins, OP_JUMP | argb(p->ps));
+    } else {
+        setreserved(p, ins, OP_JUMP | argb(p->ps));
+        patchfalse(p, e.pf);
+    }
 }
 
 static void statement(Parser* p)
