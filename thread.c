@@ -84,13 +84,15 @@ static int lequal(bt_Value* l, bt_Value* r)
     return l->number <= r->number;
 }
 
+#endif
+
 /*
 ** Evaluates a bt_Value as a boolean
 ** nil - always false
 ** boolean - should be obvious :V
 ** number - false if 0
 */
-static int tobool(bt_Value* vl)
+static int test(bt_Value* vl)
 {
     switch (vl->type)
     {
@@ -99,9 +101,6 @@ static int tobool(bt_Value* vl)
         default:        return 0;
     }
 }
-
-#define boolval(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
-#endif
 
 /*
 ** ============================================================
@@ -189,6 +188,12 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
 
             case OP_EQUAL: {
                 if (equal(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
+                break;
+            }
+            case OP_TEST: {
+                if (test(rkc(i)) == arga(i)) {
                     ++c->ip;
                 }
                 break;

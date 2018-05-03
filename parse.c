@@ -279,6 +279,17 @@ static int argkc(Parser* p, ExpData* e)
 }
 
 /*
+** Ensures that an expression is logical (comparison operators)
+** If not, adds an OP_TEST to the end.
+*/
+static void checklogic(Parser* p, ExpData* e)
+{
+    if (e->type != EX_LOGIC) {
+        addop(p, OP_TEST | arga(1) | argkc(p, e));
+    }
+}
+
+/*
 ** Smallest unit of parsing.
 ** Literals, function calls, things in parentheses.
 */
@@ -340,8 +351,10 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
             lex_next(p->lx);
             ExpData rhs;
             if (ty == OPT_AND) {
+                checklogic(p, lhs);
                 reservepatch(p, 0);
                 exprclimb(p, &rhs, 3);
+                checklogic(p, &rhs);
                 lhs->type = EX_LOGIC;
                 continue;
             }
@@ -414,13 +427,13 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     addop(&p, OP_RETURN);
     lex_free(lx);
     bt_Function* fn = finalize(&p);
-/*
+
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
         printf("|%i| %i %i %i %i\n", i, op & 0x3f, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
     printf("registers: %i\n", fn->registers);
-*/
+
     return fn;
 }
 
