@@ -131,7 +131,7 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
     FuncData* data;
     bt_Value* reg;
 
-Refresh:
+// Refresh:
     c = t->call;
     reg = c->base;
     data = c->closure->function->data;

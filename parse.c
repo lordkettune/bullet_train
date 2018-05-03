@@ -7,6 +7,8 @@
 #include "lex.h"
 #include "function.h"
 
+#define MAX_PATCHES 32
+
 typedef struct Local Local;
 
 struct Local {
@@ -14,6 +16,12 @@ struct Local {
     int scope;
     int idx;
     char name[];
+};
+
+// Information about a jump instruction that needs to be set later
+struct Patch {
+    int op; // Index of instruction
+    int jtf; // Jump if true or false
 };
 
 typedef struct {
@@ -25,6 +33,9 @@ typedef struct {
     int ds, dr; // Data size, data reserved
     int emptyreg; // Index of first empty register
     Local* locals;
+    // Patch list
+    struct Patch patch_list[MAX_PATCHES];
+    int patch; // Top of patch lisst
 } Parser;
 
 static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
@@ -42,6 +53,7 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->ds = 0; p->dr = 4;
     p->emptyreg = 0;
     p->locals = NULL;
+    p->patch = 0;
 }
 
 /*
@@ -78,6 +90,13 @@ static inline int reserve(Parser* p)
 {
     addop(p, 0);
     return p->ps - 1;
+}
+
+/* Reserves an instruction and pushes a patch onto the patch list */
+static void reservepatch(Parser* p, int jtf)
+{
+    int op = reserve(p);
+    p->patch_list[p->patch++] = (struct Patch) { .op = op, .jtf = jtf };
 }
 
 /*
@@ -172,8 +191,9 @@ enum {
 typedef struct {
     union {
         bt_Value value;
-        int reg;
+        int reg; // Register
     };
+    int pl; // Patch list
     int type;
 } ExpData;
 
@@ -184,7 +204,11 @@ typedef struct {
 
 static void exprclimb(Parser* p, ExpData* lhs, int min);
 
-#define expression(p, e) exprclimb(p, e, 0)
+static void expression(Parser* p, ExpData* e)
+{
+    e->pl = p->patch;
+    exprclimb(p, e, 0);
+}
 
 /* Routes the result of an expression to register [dest] */
 static void route(Parser* p, ExpData* e, int dest)
@@ -211,8 +235,15 @@ static void route(Parser* p, ExpData* e, int dest)
             addop(p, OP_LOADBOOL | arga(dest) | argb(0));
             break;
         case EX_LOGIC:
+            // Instructions after last comparison
             addop(p, OP_LOADBOOL | arga(dest) | argb(0) | argc(1));
             addop(p, OP_LOADBOOL | arga(dest) | argb(1));
+            // Close earlier patches
+            while (p->patch > e->pl) {
+                struct Patch* pt = &p->patch_list[--p->patch];
+                int jmp = p->ps - pt->op - 1; // Jump distance
+                p->fn->program[pt->op] = OP_LOADBOOL | arga(dest) | argb(pt->jtf) | argc(jmp);
+            }
             break;
     }
 }
@@ -273,6 +304,15 @@ static void atom(Parser* p, ExpData* e)
     }
 }
 
+// You should probably find a more elegent way to do this my dude
+enum OpType {
+    OPT_BIN,
+    OPT_AND,
+    OPT_OR
+};
+
+// THIS SUCKS FIX IT YOU DINGUS
+
 /*
 ** Mathematical/logical expression.
 ** Uses precedence climbing.
@@ -281,28 +321,36 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
 {
     atom(p, lhs);
     for (;;) {
-        int prec;
-        int ty;
-        Instruction inst;
+        int prec = 0, ex = 0;
+        enum OpType ty = OPT_BIN;
+        Instruction inst = 0;
         switch (lex_peek(p->lx))
         {
-            case '*': prec = 6; inst = OP_MUL; ty = EX_ROUTE; break;
-            case '/': prec = 6; inst = OP_DIV; ty = EX_ROUTE; break;
-            case '+': prec = 5; inst = OP_ADD; ty = EX_ROUTE; break;
-            case '-': prec = 5; inst = OP_SUB; ty = EX_ROUTE; break;
-            case TK_EQ: prec = 3; inst = OP_EQUAL | arga(1); ty = EX_LOGIC; break;
-            case TK_NE: prec = 3; inst = OP_EQUAL; ty = EX_LOGIC; break;
+            case '*': prec = 6; inst = OP_MUL; ex = EX_ROUTE; break;
+            case '/': prec = 6; inst = OP_DIV; ex = EX_ROUTE; break;
+            case '+': prec = 5; inst = OP_ADD; ex = EX_ROUTE; break;
+            case '-': prec = 5; inst = OP_SUB; ex = EX_ROUTE; break;
+            case TK_EQ: prec = 3; inst = OP_EQUAL | arga(1); ex = EX_LOGIC; break;
+            case TK_NE: prec = 3; inst = OP_EQUAL; ex = EX_LOGIC; break;
+            case TK_AND: ty = OPT_AND; break;
+            case TK_OR: ty = OPT_OR; break;
             default: return;
         }
         if (prec >= min) {
             lex_next(p->lx);
             ExpData rhs;
+            if (ty == OPT_AND) {
+                reservepatch(p, 0);
+                exprclimb(p, &rhs, 3);
+                lhs->type = EX_LOGIC;
+                continue;
+            }
             int kb = argkb(p, lhs);
             ++p->emptyreg;
             exprclimb(p, &rhs, prec + 1);
             addop(p, inst | kb | argkc(p, &rhs)); // Destination will be set later
             --p->emptyreg;
-            lhs->type = ty;
+            lhs->type = ex;
         } else
             return;
     }
