@@ -115,8 +115,8 @@ static int test(bt_Value* vl)
 #define argc(i) (i >> 24)
 
 #define dest(i) reg[arga(i)]
-#define rkb(i) (i & 0x40 ? &data[argb(i)].value : &reg[argb(i)])
-#define rkc(i) (i & 0x80 ? &data[argc(i)].value : &reg[argc(i)])
+#define rkb(i) (i & 0x40 ? &fn->data[argb(i)].value : &reg[argb(i)])
+#define rkc(i) (i & 0x80 ? &fn->data[argc(i)].value : &reg[argc(i)])
 
 #define number(n) ((bt_Value) { .number = (n), .type = VT_NUMBER })
 #define boolean(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
@@ -127,13 +127,13 @@ static int test(bt_Value* vl)
 int thread_execute(bt_Context* bt, bt_Thread* t)
 {
     Call* c;
-    FuncData* data;
+    bt_Function* fn;
     bt_Value* reg;
 
 // Refresh:
     c = t->call;
     reg = c->base;
-    data = c->closure->function->data;
+    fn = c->closure->function;
 
     for (;;)
     {
@@ -141,7 +141,7 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
         switch (i & 0x3F)
         {
             case OP_LOAD: {
-                dest(i) = data[argbx(i)].value;
+                dest(i) = fn->data[argbx(i)].value;
                 break;
             }
             case OP_LOADBOOL: {
@@ -196,6 +196,11 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
                 if (test(rkc(i)) == arga(i)) {
                     ++c->ip;
                 }
+                break;
+            }
+
+            case OP_JUMP: {
+                c->ip = fn->program + argbx(i);
                 break;
             }
 

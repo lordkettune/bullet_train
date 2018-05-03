@@ -427,13 +427,13 @@ BT_API bt_Function* bt_compile(bt_Context* bt, const char* src)
     addop(&p, OP_RETURN);
     lex_free(lx);
     bt_Function* fn = finalize(&p);
-
+/*
     for (int i = 0; i != p.ps; ++i) {
         int op = fn->program[i];
         printf("|%i| %i %i %i %i\n", i, op & 0x3f, (op >> 8) & 0xff, (op >> 16) & 0xff, (op >> 24));
     }
     printf("registers: %i\n", fn->registers);
-
+*/
     return fn;
 }
 
