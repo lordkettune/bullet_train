@@ -65,7 +65,6 @@ static int equal(bt_Value* l, bt_Value* r)
     return 0;
 }
 
-#if 0
 /*
 ** Less than comparison
 ** Errors if values are incompatible
@@ -83,8 +82,6 @@ static int lequal(bt_Value* l, bt_Value* r)
 {
     return l->number <= r->number;
 }
-
-#endif
 
 /*
 ** Evaluates a bt_Value as a boolean
@@ -188,6 +185,18 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
 
             case OP_EQUAL: {
                 if (equal(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
+                break;
+            }
+            case OP_LEQUAL: {
+                if (lequal(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
+                break;
+            }
+            case OP_LESS: {
+                if (less(rkb(i), rkc(i)) == arga(i)) {
                     ++c->ip;
                 }
                 break;

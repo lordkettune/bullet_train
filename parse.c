@@ -359,6 +359,9 @@ enum OpType {
     OPT_OR
 };
 
+#define T arga(1)
+#define F 0
+
 // THIS SUCKS FIX IT YOU DINGUS
 
 /*
@@ -374,14 +377,18 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
         Instruction inst = 0;
         switch (lex_peek(p->lx))
         {
-            case '*': prec = 6; inst = OP_MUL; ex = EX_ROUTE; break;
-            case '/': prec = 6; inst = OP_DIV; ex = EX_ROUTE; break;
-            case '+': prec = 5; inst = OP_ADD; ex = EX_ROUTE; break;
-            case '-': prec = 5; inst = OP_SUB; ex = EX_ROUTE; break;
-            case TK_EQ: prec = 3; inst = OP_EQUAL | arga(1); ex = EX_LOGIC; break;
-            case TK_NE: prec = 3; inst = OP_EQUAL; ex = EX_LOGIC; break;
+            case '*':    prec = 6; inst = OP_MUL; ex = EX_ROUTE; break;
+            case '/':    prec = 6; inst = OP_DIV; ex = EX_ROUTE; break;
+            case '+':    prec = 5; inst = OP_ADD; ex = EX_ROUTE; break;
+            case '-':    prec = 5; inst = OP_SUB; ex = EX_ROUTE; break;
+            case '>':    prec = 4; inst = OP_LEQUAL | F; ex = EX_LOGIC; break;
+            case '<':    prec = 4; inst = OP_LESS   | T; ex = EX_LOGIC; break;
+            case TK_ME:  prec = 4; inst = OP_LESS   | F; ex = EX_LOGIC; break;
+            case TK_LE:  prec = 4; inst = OP_LEQUAL | T; ex = EX_LOGIC; break; 
+            case TK_EQ:  prec = 3; inst = OP_EQUAL  | T; ex = EX_LOGIC; break;
+            case TK_NE:  prec = 3; inst = OP_EQUAL  | F; ex = EX_LOGIC; break;
             case TK_AND: ty = OPT_AND; break;
-            case TK_OR: ty = OPT_OR; break;
+            case TK_OR:  ty = OPT_OR;  break;
             default: return;
         }
         if (prec >= min) {
