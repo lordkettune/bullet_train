@@ -108,16 +108,23 @@ static void reservepatch(Parser* p, int pt)
     }
 }
 
-/* Jumps true patches to the current instruction */
+/* Jumps false patches to the current instruction */
 static void patchfalse(Parser* p, int pf)
 {
-    while (p->pfalse-- > pf) {
-        int op = p->patch_false[p->pfalse];
+    while (p->pfalse > pf) {
+        int op = p->patch_false[--p->pfalse];
         setreserved(p, op, OP_JUMP | argb(p->ps));
     }
 }
 
-/* Jumps false patches to the current instruction */
+/* Jumps true patches to the current instruction */
+static void patchtrue(Parser* p, int pt)
+{
+    while (p->ptrue > pt) {
+        int op = p->patch_true[--p->ptrue];
+        setreserved(p, op, OP_JUMP | argb(p->ps));
+    }
+}
 
 /*
 ** Sets arg A in the previous instruction.
@@ -310,6 +317,15 @@ static void checklogic(Parser* p, ExpData* e)
     }
 }
 
+/* Reverses the last logical instruction */
+static void invert(Parser* p)
+{
+    Instruction ins = p->fn->program[p->ps - 1];
+    int b = !((ins >> 8) & 0xFF);
+    ins = (ins & ~(0xFF << 8)) | (b << 8);
+    p->fn->program[p->ps - 1] = ins;
+}
+
 /*
 ** Smallest unit of parsing.
 ** Literals, function calls, things in parentheses.
@@ -371,20 +387,30 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
         if (prec >= min) {
             lex_next(p->lx);
             ExpData rhs;
+            rhs.pf = p->pfalse;
+            rhs.pt = p->ptrue;
             if (ty == OPT_AND) {
                 checklogic(p, lhs);
                 reservepatch(p, 0);
                 exprclimb(p, &rhs, 3);
                 checklogic(p, &rhs);
                 lhs->type = EX_LOGIC;
-                continue;
+            } else if (ty == OPT_OR) {
+                checklogic(p, lhs);
+                invert(p);
+                reservepatch(p, 1);
+                patchfalse(p, lhs->pf);
+                exprclimb(p, &rhs, 2);
+                checklogic(p, &rhs);
+                lhs->type = EX_LOGIC;
+            } else {
+                int kb = argkb(p, lhs);
+                ++p->emptyreg;
+                exprclimb(p, &rhs, prec + 1);
+                addop(p, inst | kb | argkc(p, &rhs)); // Destination will be set later
+                --p->emptyreg;
+                lhs->type = ex;
             }
-            int kb = argkb(p, lhs);
-            ++p->emptyreg;
-            exprclimb(p, &rhs, prec + 1);
-            addop(p, inst | kb | argkc(p, &rhs)); // Destination will be set later
-            --p->emptyreg;
-            lhs->type = ex;
         } else
             return;
     }
@@ -420,6 +446,7 @@ static void ifstmt(Parser* p)
     expression(p, &e);
     checklogic(p, &e);
     int ins = reserve(p);
+    patchtrue(p, e.pt);
     block(p);
     if (accept(p, TK_ELSE)) {
         setreserved(p, ins, OP_JUMP | argb(p->ps + 1));
@@ -446,6 +473,7 @@ static void whileloop(Parser* p)
     expression(p, &e);
     checklogic(p, &e);
     int ins = reserve(p);
+    patchtrue(p, e.pt);
     block(p);
     addop(p, OP_JUMP | argb(start));
     setreserved(p, ins, OP_JUMP | argb(p->ps));
