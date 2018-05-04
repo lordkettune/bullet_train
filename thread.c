@@ -182,6 +182,11 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
                 dest(i) = number(-vl->number);
                 break;
             }
+            case OP_NOT: {
+                bt_Value* vl = rkc(i);
+                dest(i) = boolean(!vl->boolean);
+                break;
+            }
 
             case OP_EQUAL: {
                 if (equal(rkb(i), rkc(i)) == arga(i)) {

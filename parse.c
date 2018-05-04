@@ -339,6 +339,18 @@ static void atom(Parser* p, ExpData* e)
             e->reg = l->idx;
             break;
         }
+        case '!': {
+            atom(p, e);
+            addop(p, OP_NOT | argkc(p, e));
+            e->type = EX_ROUTE;
+            break;
+        }
+        case '-': {
+            atom(p, e);
+            addop(p, OP_NEG | argkc(p, e));
+            e->type = EX_ROUTE;
+            break;
+        }
         case TK_TRUE: initexp(e, EX_TRUE); break;
         case TK_FALSE: initexp(e, EX_FALSE); break;
         case '(': expression(p, e); expect(p, ')'); break;
