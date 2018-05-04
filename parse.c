@@ -341,6 +341,7 @@ static void atom(Parser* p, ExpData* e)
         }
         case TK_TRUE: initexp(e, EX_TRUE); break;
         case TK_FALSE: initexp(e, EX_FALSE); break;
+        case '(': expression(p, e); expect(p, ')'); break;
         default: // Error
             break;
     }
@@ -391,7 +392,9 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
             if (ty == OPT_AND) {
                 checklogic(p, lhs);
                 addpatch(p, &lhs->f);
+                patchhere(p, &lhs->t);
                 exprclimb(p, &rhs, 3);
+                lhs->t = rhs.t;
                 checklogic(p, &rhs);
                 lhs->type = EX_LOGIC;
             } else if (ty == OPT_OR) {
