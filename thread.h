@@ -10,8 +10,7 @@ struct bt_Thread {
     bt_Thread* next;
     BT_TIMER timer;
     bt_Value* stack;
-    bt_Value* sp;
-    int stack_size;
+    int stacksize;
     Call* call;
 };
 

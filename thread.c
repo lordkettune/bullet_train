@@ -24,8 +24,8 @@ bt_Thread* thread_new()
     bt_Thread* t = malloc(sizeof(bt_Thread));
     t->next = NULL;
     t->timer = 0;
-    t->sp = t->stack = malloc(sizeof(bt_Value) * 32);
-    t->stack_size = 32;
+    t->stack = malloc(sizeof(bt_Value) * 32);
+    t->stacksize = 32;
     Call* c = malloc(sizeof(Call));
     c->previous = NULL;
     c->next = NULL;
@@ -89,7 +89,7 @@ static int lequal(bt_Value* l, bt_Value* r)
 ** boolean - should be obvious :V
 ** number - false if 0
 */
-static int tobool(bt_Value* vl)
+static int test(bt_Value* vl)
 {
     switch (vl->type)
     {
@@ -99,13 +99,24 @@ static int tobool(bt_Value* vl)
     }
 }
 
-#define boolval(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
-
 /*
 ** ============================================================
-** Bullet Train's amazing grand deluxe main interpreter
+** The interpreter, Bullet Train's heart and soul
 ** ============================================================
 */
+
+// Shortcuts
+#define arga(i) ((i >> 8) & 0xFF)
+#define argb(i) ((i >> 16) & 0xFF)
+#define argbx(i) (i >> 16)
+#define argc(i) (i >> 24)
+
+#define dest(i) reg[arga(i)]
+#define rkb(i) (i & 0x40 ? &fn->data[argb(i)].value : &reg[argb(i)])
+#define rkc(i) (i & 0x80 ? &fn->data[argc(i)].value : &reg[argc(i)])
+
+#define number(n) ((bt_Value) { .number = (n), .type = VT_NUMBER })
+#define boolean(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
 
 /*
 ** Main loop of the interpreter
@@ -114,121 +125,105 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
 {
     Call* c;
     bt_Function* fn;
-    // These two are stored locally to slightly speed up access
-    bt_Value* sp;
-    Instruction* ip;
+    bt_Value* reg;
 
-Refresh:
+// Refresh:
     c = t->call;
+    reg = c->base;
     fn = c->closure->function;
-    sp = t->sp;
-    ip = c->ip;
 
     for (;;)
     {
-        Instruction i = *ip++;
-        switch (i & 0xFF)
+        Instruction i = *c->ip++;
+        switch (i & 0x3F)
         {
-            case OP_PUSH: {
-                *sp++ = fn->data[i >> 16].value;
+            case OP_LOAD: {
+                dest(i) = fn->data[argbx(i)].value;
                 break;
             }
-            case OP_PUSHBOOL: {
-                *sp++ = boolval(i >> 16);
-                break;
-            }
-            case OP_PUSHNIL: {
-                (sp++)->type = VT_NIL;
+            case OP_LOADBOOL: {
+                dest(i) = boolean(argb(i));
+                c->ip += argc(i);
                 break;
             }
 
-            case OP_LOAD: {
-                *sp++ = c->base[i >> 16];
-                break;
-            }
-            case OP_STORE: {
-                c->base[i >> 16] = *(--sp);
+            case OP_MOVE: {
+                dest(i) = reg[argbx(i)];
                 break;
             }
 
             case OP_ADD: {
-                --sp;
-                (sp - 1)->number += sp->number;
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number + rhs->number);
                 break;
             }
             case OP_SUB: {
-                --sp;
-                (sp - 1)->number -= sp->number;
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number - rhs->number);
                 break;
             }
             case OP_MUL: {
-                --sp;
-                (sp - 1)->number *= sp->number;
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number * rhs->number);
                 break;
             }
             case OP_DIV: {
-                --sp;
-                (sp - 1)->number /= sp->number;
+                bt_Value* lhs = rkb(i);
+                bt_Value* rhs = rkc(i);
+                dest(i) = number(lhs->number / rhs->number);
                 break;
             }
 
             case OP_NEG: {
-                (sp - 1)->number *= -1;
+                bt_Value* vl = rkc(i);
+                dest(i) = number(-vl->number);
                 break;
             }
             case OP_NOT: {
-                *(sp - 1) = boolval(!tobool(sp - 1));
+                bt_Value* vl = rkc(i);
+                dest(i) = boolean(!vl->boolean);
                 break;
             }
 
             case OP_EQUAL: {
-                --sp;
-                *(sp - 1) = boolval(equal(sp - 1, sp) == (i >> 16));
-                break;
-            }
-            case OP_LESS: {
-                --sp;
-                *(sp - 1) = boolval(less(sp - 1, sp) == (i >> 16));
+                if (equal(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
                 break;
             }
             case OP_LEQUAL: {
-                --sp;
-                *(sp - 1) = boolval(lequal(sp - 1, sp) == (i >> 16));
+                if (lequal(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
                 break;
             }
-
-            case OP_AND: {
-                --sp;
-                *(sp - 1) = boolval(tobool(sp - 1) && tobool(sp));
+            case OP_LESS: {
+                if (less(rkb(i), rkc(i)) == arga(i)) {
+                    ++c->ip;
+                }
                 break;
             }
-            case OP_OR: {
-                --sp;
-                *(sp - 1) = boolval(tobool(sp - 1) || tobool(sp));
-                break;
-            }
-
-            case OP_JUMP: {
-                ip = fn->program + (i >> 16);
-                break;
-            }
-            case OP_JUMPIF: {
-                --sp;
-                if (!tobool(sp)) {
-                    ip = fn->program + (i >> 16);
+            case OP_TEST: {
+                if (test(rkc(i)) == arga(i)) {
+                    ++c->ip;
                 }
                 break;
             }
 
-            case OP_CALL: {
-                goto Refresh;
+            case OP_JUMP: {
+                c->ip = fn->program + argbx(i);
+                break;
             }
+
             case OP_RETURN: {
                 return 1;
             }
 
             case OP_PRINT: {
-                printvalue(--sp);
+                printvalue(rkc(i));
                 break;
             }
         }
@@ -241,13 +236,13 @@ Refresh:
 // Temp?
 BT_API void bt_call(bt_Context* bt, bt_Function* fn)
 {
+    // return;
     bt_Thread* t = ctx_getthread(bt);
     Call* c = t->call;
     bt_Closure* cl = malloc(sizeof(bt_Closure));
     cl->function = fn;
     c->closure = cl;
     c->ip = fn->program;
-    t->sp = c->base + fn->locals;
     thread_execute(bt, t);
     free(cl);
 }

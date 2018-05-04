@@ -40,7 +40,7 @@ BT_API bt_Context* bt_newcontext();
 BT_API void bt_freecontext(bt_Context* bt);
 
 BT_API bt_Function* bt_compile(bt_Context* bt, const char* src);
-BT_API bt_Function* bt_fcompile(bt_Context* bt, const char* src);
+BT_API bt_Function* bt_fcompile(bt_Context* bt, const char* path);
 
 BT_API void bt_call(bt_Context* bt, bt_Function* fn);
 
