@@ -27,10 +27,6 @@ typedef struct {
     int ds, dr; // Data size, data reserved
     int emptyreg; // Index of first empty register
     Local* locals;
-    // Patch lists
-    int patch_true[MAX_PATCHES];
-    int patch_false[MAX_PATCHES];
-    int ptrue, pfalse; // Size of lists
 } Parser;
 
 static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
@@ -48,7 +44,6 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->ds = 0; p->dr = 4;
     p->emptyreg = 0;
     p->locals = NULL;
-    p->ptrue = p->pfalse = 0;
 }
 
 /*
@@ -95,38 +90,6 @@ static inline int reserve(Parser* p)
 #define setreserved(p, i, op) p->fn->program[i] = (op)
 
 /*
-** Reserves an instruction and pushes a patch onto either 
-** the true or false list, as indicated by [pt]
-*/
-static void reservepatch(Parser* p, int pt)
-{
-    int op = reserve(p);
-    if (pt) {
-        p->patch_true[p->ptrue++] = op;
-    } else {
-        p->patch_false[p->pfalse++] = op;
-    }
-}
-
-/* Jumps false patches to the current instruction */
-static void patchfalse(Parser* p, int pf)
-{
-    while (p->pfalse > pf) {
-        int op = p->patch_false[--p->pfalse];
-        setreserved(p, op, OP_JUMP | argb(p->ps));
-    }
-}
-
-/* Jumps true patches to the current instruction */
-static void patchtrue(Parser* p, int pt)
-{
-    while (p->ptrue > pt) {
-        int op = p->patch_true[--p->ptrue];
-        setreserved(p, op, OP_JUMP | argb(p->ps));
-    }
-}
-
-/*
 ** Sets arg A in the previous instruction.
 ** Arg A is used as the destination register in every instruction
 ** that has one, so this is safe to do.
@@ -146,9 +109,6 @@ static int adddata(Parser* p, FuncData d)
 }
 
 #define addconstant(p, c) (adddata(p, (FuncData) { .value = (c) }))
-
-/* Ensures the function's register count is enough to use register [s] */
-#define checkreg(p, s) if (s >= p->fn->registers) p->fn->registers = s + 1
 
 /*
 ** Searches for a local variable in the parser's list.
@@ -179,6 +139,44 @@ static int newlocal(Parser* p, const char* name)
     l->scope = 0;
     p->locals = l;
     return l->idx;
+}
+
+#define NO_PATCHES -1
+#define LAST_PATCH 0
+
+static void addpatch(Parser* p, int* list)
+{
+    addop(p, *list == NO_PATCHES ? LAST_PATCH : *list);
+    *list = p->ps - 1;
+}
+
+static void patchhere(Parser* p, int* list)
+{
+    int l = *list;
+    if (l != NO_PATCHES) {
+        int op;
+        do {
+            op = p->fn->program[l];
+            p->fn->program[l] = OP_JUMP | argb(p->ps);
+            l = op;
+        } while (op != LAST_PATCH);
+        *list = NO_PATCHES;
+    }
+}
+
+static void patchbool(Parser* p, int* list, int dest, int b)
+{
+    int l = *list;
+    if (l != NO_PATCHES) {
+        Instruction ins = OP_LOADBOOL | arga(dest) | argb(b);
+        int op;
+        do {
+            op = p->fn->program[l];
+            p->fn->program[l] = ins | argc(p->ps - l - 1);
+            l = op;
+        } while (op != LAST_PATCH);
+        *list = NO_PATCHES;
+    }
 }
 
 /* Errors if the next token isn't [tk] */
@@ -220,16 +218,20 @@ typedef struct {
         bt_Value value;
         int reg; // Register
     };
-    int pt, pf; // Patch lists
+    int t, f; // Patch lists
     int type;
 } ExpData;
 
+static void initexp(ExpData* e, int t)
+{
+    e->t = e->f = NO_PATCHES;
+    e->type = t;
+}
+
 static void exprclimb(Parser* p, ExpData* lhs, int min);
 
-static void expression(Parser* p, ExpData* e)
+static inline void expression(Parser* p, ExpData* e)
 {
-    e->pt = p->ptrue;
-    e->pf = p->pfalse;
     exprclimb(p, e, 0);
 }
 
@@ -262,16 +264,8 @@ static void route(Parser* p, ExpData* e, int dest)
             addop(p, OP_LOADBOOL | arga(dest) | argb(0) | argc(1));
             addop(p, OP_LOADBOOL | arga(dest) | argb(1));
             // Close earlier patches
-            while (p->pfalse-- > e->pf) {
-                int op = p->patch_false[p->pfalse];
-                int jump = p->ps - op - 1;
-                setreserved(p, op, OP_LOADBOOL | arga(dest) | argb(0) | argc(jump));
-            }
-            while (p->ptrue-- > e->pt) {
-                int op = p->patch_true[p->ptrue];
-                int jump = p->ps - op - 1;
-                setreserved(p, op, OP_LOADBOOL | arga(dest) | argb(1) | argc(jump));
-            }
+            patchbool(p, &e->f, dest, 0);
+            patchbool(p, &e->t, dest, 1);
             break;
     }
 }
@@ -335,18 +329,18 @@ static void atom(Parser* p, ExpData* e)
     switch (lex_next(p->lx))
     {
         case TK_NUMBER:
+            initexp(e, EX_CONST);
             e->value = (bt_Value) { .number = lex_getnumber(p->lx), .type = VT_NUMBER };
-            e->type = EX_CONST;
             break;
         case TK_ID: {
+            initexp(e, EX_REG);
             const char* name = lex_gettext(p->lx);
             Local* l = findlocal(p, name);
             e->reg = l->idx;
-            e->type = EX_REG;
             break;
         }
-        case TK_TRUE: e->type = EX_TRUE; break;
-        case TK_FALSE: e->type = EX_FALSE; break;
+        case TK_TRUE: initexp(e, EX_TRUE); break;
+        case TK_FALSE: initexp(e, EX_FALSE); break;
         default: // Error
             break;
     }
@@ -394,20 +388,19 @@ static void exprclimb(Parser* p, ExpData* lhs, int min)
         if (prec >= min) {
             lex_next(p->lx);
             ExpData rhs;
-            rhs.pf = p->pfalse;
-            rhs.pt = p->ptrue;
             if (ty == OPT_AND) {
                 checklogic(p, lhs);
-                reservepatch(p, 0);
+                addpatch(p, &lhs->f);
                 exprclimb(p, &rhs, 3);
                 checklogic(p, &rhs);
                 lhs->type = EX_LOGIC;
             } else if (ty == OPT_OR) {
                 checklogic(p, lhs);
                 invert(p);
-                reservepatch(p, 1);
-                patchfalse(p, lhs->pf);
+                addpatch(p, &lhs->t);
+                patchhere(p, &lhs->f);
                 exprclimb(p, &rhs, 2);
+                lhs->f = rhs.f;
                 checklogic(p, &rhs);
                 lhs->type = EX_LOGIC;
             } else {
@@ -453,23 +446,23 @@ static void ifstmt(Parser* p)
     expression(p, &e);
     checklogic(p, &e);
     int ins = reserve(p);
-    patchtrue(p, e.pt);
+    patchhere(p, &e.t);
     block(p);
     if (accept(p, TK_ELSE)) {
         setreserved(p, ins, OP_JUMP | argb(p->ps + 1));
         ins = reserve(p);
-        patchfalse(p, e.pf);
+        patchhere(p, &e.f);
         block(p);
         setreserved(p, ins, OP_JUMP | argb(p->ps));
     } else if (accept(p, TK_ELIF)) {
         setreserved(p, ins, OP_JUMP | argb(p->ps + 1));
         ins = reserve(p);
-        patchfalse(p, e.pf);
+        patchhere(p, &e.f);
         ifstmt(p);
         setreserved(p, ins, OP_JUMP | argb(p->ps));
     } else {
         setreserved(p, ins, OP_JUMP | argb(p->ps));
-        patchfalse(p, e.pf);
+        patchhere(p, &e.f);
     }
 }
 
@@ -480,11 +473,11 @@ static void whileloop(Parser* p)
     expression(p, &e);
     checklogic(p, &e);
     int ins = reserve(p);
-    patchtrue(p, e.pt);
+    patchhere(p, &e.t);
     block(p);
     addop(p, OP_JUMP | argb(start));
     setreserved(p, ins, OP_JUMP | argb(p->ps));
-    patchfalse(p, e.pf);
+    patchhere(p, &e.f);
 }
 
 static void statement(Parser* p)
