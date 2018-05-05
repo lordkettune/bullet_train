@@ -24,7 +24,8 @@ typedef struct {
     Lexer* lx;
     // Hideous vector counters. Not much I can do since this ain't C++
     int ps, pr; // Program size, program reserved
-    int ds, dr; // Data size, data reserved
+    int ks, kr; // Keys size, keys reserved
+    int cs, cr; // Data size, data reserved
     int emptyreg; // Index of first empty register
     Local* locals;
 } Parser;
@@ -33,7 +34,8 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
 {
     bt_Function* fn = malloc(sizeof(bt_Function));
     fn->program = malloc(sizeof(Instruction) * 4);
-    fn->data = malloc(sizeof(FuncData) * 4);
+    fn->constants = malloc(sizeof(bt_Value) * 4);
+    fn->keys = malloc(sizeof(Key*) * 4);
     fn->params = 0;
     fn->registers = 0;
     fn->type = FT_FUNC;
@@ -41,7 +43,8 @@ static void initparser(Parser* p, bt_Context* ctx, Lexer* lx)
     p->lx = lx;
     p->ctx = ctx;
     p->ps = 0; p->pr = 4;
-    p->ds = 0; p->dr = 4;
+    p->ks = 0; p->kr = 4;
+    p->cs = 0; p->cr = 4;
     p->emptyreg = 0;
     p->locals = NULL;
 }
@@ -54,7 +57,8 @@ static bt_Function* finalize(Parser* p)
 {
     bt_Function* fn = p->fn;
     fn->program = realloc(fn->program, sizeof(Instruction) * p->ps);
-    fn->data = realloc(fn->data, sizeof(FuncData) * p->ds);
+    fn->constants = realloc(fn->constants, sizeof(bt_Value) * p->cs);
+    fn->keys = realloc(fn->keys, sizeof(Key*) * p->ks);
     Local* l = p->locals;
     while (l != NULL) {
         Local* temp = l->prev;
@@ -97,18 +101,16 @@ static inline int reserve(Parser* p)
 #define setdest(p, d) p->fn->program[p->ps - 1] |= ((d) << 8)
 
 /* Adds an FData to the result, returning the index of the item */
-static int adddata(Parser* p, FuncData d)
+static int addconstant(Parser* p, bt_Value vl)
 {
     bt_Function* fn = p->fn;
-    fn->data[p->ds++] = d;
-    if (p->ds == p->dr) {
-        p->dr *= 2;
-        fn->data = realloc(fn->data, sizeof(FuncData) * p->dr);
+    fn->constants[p->cs++] = vl;
+    if (p->cs == p->cr) {
+        p->cr *= 2;
+        fn->constants = realloc(fn->constants, sizeof(bt_Value) * p->cr);
     }
-    return p->ds - 1;
+    return p->cs - 1;
 }
-
-#define addconstant(p, c) (adddata(p, (FuncData) { .value = (c) }))
 
 /*
 ** Searches for a local variable in the parser's list.

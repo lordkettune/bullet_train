@@ -112,8 +112,8 @@ static int test(bt_Value* vl)
 #define argc(i) (i >> 24)
 
 #define dest(i) reg[arga(i)]
-#define rkb(i) (i & 0x40 ? &fn->data[argb(i)].value : &reg[argb(i)])
-#define rkc(i) (i & 0x80 ? &fn->data[argc(i)].value : &reg[argc(i)])
+#define rkb(i) (i & 0x40 ? &fn->constants[argb(i)] : &reg[argb(i)])
+#define rkc(i) (i & 0x80 ? &fn->constants[argc(i)] : &reg[argc(i)])
 
 #define number(n) ((bt_Value) { .number = (n), .type = VT_NUMBER })
 #define boolean(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
@@ -138,7 +138,7 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
         switch (i & 0x3F)
         {
             case OP_LOAD: {
-                dest(i) = fn->data[argbx(i)].value;
+                dest(i) = fn->constants[argbx(i)];
                 break;
             }
             case OP_LOADBOOL: {

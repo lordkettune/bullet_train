@@ -21,6 +21,7 @@ struct Metatable {
     int reserved;
 };
 
+/* Creates a new metatable */
 Metatable* struct_newmeta()
 {
     Metatable* meta = malloc(sizeof(Metatable));

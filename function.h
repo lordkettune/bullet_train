@@ -48,13 +48,6 @@ typedef enum {
     FT_GEN   // A "traditional" coroutine
 } FuncType;
 
-/* Data not small enough to fit in an instruction */
-typedef union {
-    bt_Value value;
-    Key* key;
-    bt_Function* function;
-} FuncData;
-
 /*
 ** Information about a function.
 ** Not callable on its own -- needs to be part of a bt_Closure
@@ -62,7 +55,8 @@ typedef union {
 */
 struct bt_Function {
     Instruction* program;
-    FuncData* data;
+    bt_Value* constants;
+    Key** keys;
     int params; // Number of parameters
     int registers; // Number of registers needed by this function
     FuncType type; // Type of function (func, task, or gen)
