@@ -51,9 +51,9 @@ BT_API void bt_freecontext(bt_Context* bt)
     GCBlock* gc = bt->gclist;
     while (gc != NULL) {
         if (gc->destructor != NULL) {
-            gc->destructor(gc + sizeof(GCBlock));
+            gc->destructor(gc + 1);
         }
-        GCBlock* temp = gc;
+        GCBlock* temp = gc->next;
         free(gc);
         gc = temp;
     }
@@ -131,7 +131,7 @@ BT_API void* bt_gcalloc(bt_Context* bt, size_t size, bt_Destructor d)
     gc->destructor = d;
     gc->next = bt->gclist;
     bt->gclist = gc;
-    return gc + sizeof(GCBlock);
+    return gc + 1;
 }
 
 /* Start vector size for structs */

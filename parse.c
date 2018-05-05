@@ -353,6 +353,12 @@ static void atom(Parser* p, ExpData* e)
             e->type = EX_ROUTE;
             break;
         }
+        case '{': {
+            initexp(e, EX_ROUTE);
+            addop(p, OP_NEWSTRUCT);
+            expect(p, '}');
+            break;
+        }
         case TK_TRUE: initexp(e, EX_TRUE); break;
         case TK_FALSE: initexp(e, EX_FALSE); break;
         case '(': expression(p, e); expect(p, ')'); break;

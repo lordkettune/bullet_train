@@ -117,6 +117,7 @@ static int test(bt_Value* vl)
 
 #define number(n) ((bt_Value) { .number = (n), .type = VT_NUMBER })
 #define boolean(b) ((bt_Value) { .boolean = (b), .type = VT_BOOL })
+#define struc(b) ((bt_Value) { .struc = (b), .type = VT_STRUCT })
 
 /*
 ** Main loop of the interpreter
@@ -144,6 +145,11 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
             case OP_LOADBOOL: {
                 dest(i) = boolean(argb(i));
                 c->ip += argc(i);
+                break;
+            }
+
+            case OP_NEWSTRUCT: {
+                dest(i) = struc(bt_newstruct(bt));
                 break;
             }
 

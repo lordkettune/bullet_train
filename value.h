@@ -7,7 +7,8 @@ enum {
     VT_NIL,
     VT_NUMBER,
     VT_BOOL,
-    VT_CLOSURE
+    VT_CLOSURE,
+    VT_STRUCT
 };
 
 struct bt_Value {
@@ -15,6 +16,7 @@ struct bt_Value {
         BT_NUMBER number;
         int boolean;
         bt_Closure* closure;
+        bt_Struct* struc;
     };
     int type;
 };
