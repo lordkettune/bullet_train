@@ -6,8 +6,19 @@
 
 #define BT_REG_SIZE 127
 
+/*
+** Information about a GC memory allocation .
+** Stored at the beginning of each memory block.
+*/
+typedef struct GCBlock {
+    struct GCBlock* next;
+    bt_Destructor destructor;
+    int refs;
+} GCBlock;
+
 struct bt_Context {
     Key* key_regist[BT_REG_SIZE];
+    GCBlock* gclist;
     bt_Thread* inactive;
     bt_Thread* active;
 };
@@ -24,6 +35,7 @@ BT_API bt_Context* bt_newcontext()
     }
     bt->inactive = NULL;
     bt->active = NULL;
+    bt->gclist = NULL;
     return bt;
 }
 
@@ -33,6 +45,15 @@ BT_API bt_Context* bt_newcontext()
 */
 BT_API void bt_freecontext(bt_Context* bt)
 {
+    GCBlock* gc = bt->gclist;
+    while (gc != NULL) {
+        if (gc->destructor != NULL) {
+            gc->destructor(gc + sizeof(GCBlock));
+        }
+        GCBlock* temp = gc;
+        free(gc);
+        gc = temp;
+    }
     free(bt);
 }
 
@@ -91,4 +112,21 @@ bt_Thread* ctx_getthread(bt_Context* bt)
         result = thread_new();
     }
     return result;
+}
+
+/*
+** ============================================================
+** Garbage collection
+** ============================================================
+*/
+
+/* Allocates garbage collected memory */
+BT_API void* bt_gcalloc(bt_Context* bt, size_t size, bt_Destructor d)
+{
+    GCBlock* gc = malloc(sizeof(GCBlock) + size);
+    gc->refs = 0;
+    gc->destructor = d;
+    gc->next = bt->gclist;
+    bt->gclist = gc;
+    return gc + sizeof(GCBlock);
 }

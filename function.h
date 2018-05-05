@@ -9,6 +9,7 @@
 enum {
     OP_LOAD,
     OP_LOADBOOL,
+    OP_NEWSTRUCT,
     OP_MOVE,
     OP_ADD,
     OP_SUB,
