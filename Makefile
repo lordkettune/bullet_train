@@ -1,4 +1,4 @@
-SOURCES = context.c lex.c parse.c thread.c
+SOURCES = context.c lex.c parse.c thread.c struct.c
 
 default:
 	gcc $(SOURCES) -D BT_BUILD_DLL -D BT_DEBUG -shared -std=c11 -Wall -O2 -s -o bullet_train.dll

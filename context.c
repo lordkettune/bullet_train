@@ -3,6 +3,7 @@
 
 #include "context.h"
 #include "thread.h"
+#include "struct.h"
 
 #define BT_REG_SIZE 127
 
@@ -18,6 +19,7 @@ typedef struct GCBlock {
 
 struct bt_Context {
     Key* key_regist[BT_REG_SIZE];
+    Metatable* root_meta;
     GCBlock* gclist;
     bt_Thread* inactive;
     bt_Thread* active;
@@ -33,6 +35,7 @@ BT_API bt_Context* bt_newcontext()
     for (int i = 0; i != BT_REG_SIZE; ++i) {
         bt->key_regist[i] = NULL;
     }
+    bt->root_meta = struct_newmeta();
     bt->inactive = NULL;
     bt->active = NULL;
     bt->gclist = NULL;
@@ -129,4 +132,18 @@ BT_API void* bt_gcalloc(bt_Context* bt, size_t size, bt_Destructor d)
     gc->next = bt->gclist;
     bt->gclist = gc;
     return gc + sizeof(GCBlock);
+}
+
+/* Start vector size for structs */
+#define STRUCT_BUF 4
+
+/* Creates a new bt_Struct */
+BT_API bt_Struct* bt_newstruct(bt_Context* bt)
+{
+    bt_Struct* st = bt_gcalloc(bt, sizeof(bt_Struct), struct_destroy);
+    st->data = malloc(sizeof(bt_Value) * STRUCT_BUF);
+    st->size = 0;
+    st->reserved = STRUCT_BUF;
+    st->meta = bt->root_meta;
+    return st;
 }
