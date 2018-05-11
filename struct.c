@@ -17,6 +17,7 @@ struct Metatable {
     Key* key;
     int idx;
     Metatable** children;
+    int count;
     int size;
 };
 
@@ -32,6 +33,7 @@ Metatable* newrootmeta()
     meta->key = NULL;
     meta->idx = -1;
     meta->parent = NULL;
+    meta->count = 0;
     return meta;
 }
 
@@ -58,6 +60,24 @@ bt_Value getstruct(bt_Struct* s, Key* k)
     }
     // Not found, error
     return (bt_Value) { .type = VT_NIL };
+}
+
+/* Resizes a metatable to size [s] */
+static void resize(Metatable* m, int s)
+{
+    Metatable** c = malloc(s * sizeof(Metatable*));
+    for (int i = 0; i != m->size; ++i) {
+        if (m->children[i] != NULL) {
+            int j = m->children[i]->key->hash % s;
+            while (c[j] != NULL) {
+                j = (j + 1) % s;
+            }
+            c[j] = m->children[i];
+        }
+    }
+    free(m->children);
+    m->children = c;
+    m->size = s;
 }
 
 /*
@@ -89,9 +109,15 @@ void setstruct(bt_Struct* s, Key* k, bt_Value* vl)
         c = meta->children[i];
     }
 
+    // Resize if table is going to be full
+    if (meta->count == meta->size - 1) {
+        resize(meta, meta->size * 2);
+    }
+
     // No entry, create a new child metatable and try again
     c = malloc(sizeof(Metatable));
     meta->children[i] = c;
+    ++meta->count;
 
     // Copy metatable's children to new child
     c->children = malloc(meta->size * sizeof(Metatable*));
@@ -103,6 +129,7 @@ void setstruct(bt_Struct* s, Key* k, bt_Value* vl)
     c->key = k;
     c->parent = meta;
     c->size = meta->size;
+    c->count = meta->count;
 
     s->meta = c;
     if (c->idx == s->size) {
