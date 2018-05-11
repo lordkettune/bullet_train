@@ -81,11 +81,12 @@ Key* ctx_getkey(bt_Context* bt, const char* name)
     unsigned long hash = keyhash(name);
     Key** loc = &bt->key_regist[hash % BT_REG_SIZE];
     Key* key = *loc;
-    do {
+    while (key != NULL) {
         if (strcmp(key->text, name) == 0) {
             return key;
         }
-    } while ((key = key->next));
+        key = key->next;
+    }
     // Key not found, make a new one
     key = malloc(sizeof(Key) + strlen(name) + 1);
     strcpy(key->text, name);
