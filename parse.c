@@ -492,11 +492,18 @@ static void varstmt(Parser* p)
         if (l == NULL) {
             // ERROR
         }
+        int k, r = l->idx;
+    AnothaOne:
         expect(p, TK_ID);
-        int k = addkey(p, lex_gettext(p->lx));
+        k = addkey(p, lex_gettext(p->lx));
+        if (accept(p, '.')) {
+            addop(p, OP_GETSTRUCT | arga(p->emptyreg) | argb(r) | argc(k));
+            r = p->emptyreg;
+            goto AnothaOne;
+        }
         expect(p, '=');
         expression(p, &e);
-        addop(p, OP_SETSTRUCT | arga(l->idx) | argb(k) | argkc(p, &e));
+        addop(p, OP_SETSTRUCT | arga(r) | argb(k) | argkc(p, &e));
         return;
     }
     int dest = l == NULL ? newlocal(p, name) : l->idx; // Local undeclared?
