@@ -285,6 +285,16 @@ static void route(Parser* p, ExpData* e, int dest)
     }
 }
 
+/* Ensures an expression ends up in a register */
+static void anyreg(Parser* p, ExpData* e)
+{
+    if (e->type != EX_REG) {
+        route(p, e, p->emptyreg);
+        e->type = EX_REG;
+        e->reg = p->emptyreg;
+    }
+}
+
 static void toargk(Parser* p, ExpData* e, int* k, int* idx)
 {
     if (e->type == EX_CONST) {
@@ -377,6 +387,18 @@ static void atom(Parser* p, ExpData* e)
         case '(': expression(p, e); expect(p, ')'); break;
         default: // Error
             break;
+    }
+
+    // Check for suffixes (., [], ())
+    for (;;) {
+        if (accept(p, '.')) {
+            expect(p, TK_ID);
+            int k = addkey(p, lex_gettext(p->lx));
+            anyreg(p, e);
+            addop(p, OP_GETSTRUCT | argb(e->reg) | argc(k));
+            e->type = EX_ROUTE;
+        } else
+            return;
     }
 }
 

@@ -41,6 +41,25 @@ void destroystruct(void* st)
     free(((bt_Struct*)st)->data);
 }
 
+#include <stdio.h>
+
+/* Gets an element of a struct */
+bt_Value getstruct(bt_Struct* s, Key* k)
+{
+    Metatable* meta = s->meta;
+    int i = k->hash % meta->size;
+    Metatable* c = meta->children[i];
+    while (c != NULL) {
+        if (c->key == k) {
+            return s->data[c->idx];
+        }
+        i = (i + 1) % meta->size;
+        c = meta->children[i];
+    }
+    // Not found, error
+    return (bt_Value) { .type = VT_NIL };
+}
+
 /*
 ** Sets an element of a struct.
 ** Checks the struct's metatable for an entry with the specified key.
@@ -49,8 +68,8 @@ void destroystruct(void* st)
 */
 void setstruct(bt_Struct* s, Key* k, bt_Value* vl)
 {
-    int i = k->hash % s->size;
     Metatable* meta = s->meta;
+    int i = k->hash % meta->size;
     Metatable* c = meta->children[i];
 
     while (c != NULL) {
@@ -70,7 +89,7 @@ void setstruct(bt_Struct* s, Key* k, bt_Value* vl)
         c = meta->children[i];
     }
 
-    // No entry, create a new child metatable
+    // No entry, create a new child metatable and try again
     c = malloc(sizeof(Metatable));
     meta->children[i] = c;
 
@@ -79,9 +98,16 @@ void setstruct(bt_Struct* s, Key* k, bt_Value* vl)
     for (int i = 0; i != meta->size; ++i) {
         c->children[i] = meta->children[i];
     }
-    
+
     c->idx = meta->idx + 1;
     c->key = k;
     c->parent = meta;
     c->size = meta->size;
+
+    s->meta = c;
+    if (c->idx == s->size) {
+        s->size *= 2;
+        s->data = realloc(s->data, s->size * sizeof(bt_Value));
+    }
+    s->data[c->idx] = *vl;
 }

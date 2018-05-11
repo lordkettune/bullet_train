@@ -17,5 +17,6 @@ Metatable* newrootmeta();
 void destroystruct(void* st);
 
 void setstruct(bt_Struct* s, Key* k, bt_Value* vl);
+bt_Value getstruct(bt_Struct* s, Key* k);
 
 #endif
