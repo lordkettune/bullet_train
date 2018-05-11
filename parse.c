@@ -112,6 +112,19 @@ static int addconstant(Parser* p, bt_Value vl)
     return p->cs - 1;
 }
 
+/* Adds a key to the result, returning the index */
+static int addkey(Parser* p, const char* skey)
+{
+    Key* key = ctx_getkey(p->ctx, skey);
+    bt_Function* fn = p->fn;
+    fn->keys[p->ks++] = key;
+    if (p->ks == p->kr) {
+        p->kr *= 2;
+        fn->keys = realloc(fn->keys, sizeof(Key*) * p->kr);
+    }
+    return p->ks - 1;
+}
+
 /*
 ** Searches for a local variable in the parser's list.
 ** Returns NULL if it doesn't exist.
@@ -452,9 +465,20 @@ static void varstmt(Parser* p)
 {
     const char* name = lex_gettext(p->lx);
     Local* l = findlocal(p, name);
+    ExpData e;
+    if (accept(p, '.')) {
+        if (l == NULL) {
+            // ERROR
+        }
+        expect(p, TK_ID);
+        int k = addkey(p, lex_gettext(p->lx));
+        expect(p, '=');
+        expression(p, &e);
+        addop(p, OP_SETSTRUCT | arga(l->idx) | argb(k) | argkc(p, &e));
+        return;
+    }
     int dest = l == NULL ? newlocal(p, name) : l->idx; // Local undeclared?
     expect(p, '=');
-    ExpData e;
     expression(p, &e);
     route(p, &e, dest);
     if (l == NULL) {

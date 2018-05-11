@@ -4,6 +4,7 @@
 #include "thread.h"
 #include "function.h"
 #include "context.h"
+#include "struct.h"
 
 /*
 ** Function call information.
@@ -150,6 +151,10 @@ int thread_execute(bt_Context* bt, bt_Thread* t)
 
             case OP_NEWSTRUCT: {
                 dest(i) = struc(bt_newstruct(bt));
+                break;
+            }
+            case OP_SETSTRUCT: {
+                setstruct(reg[arga(i)].struc, fn->keys[argb(i)], rkc(i));
                 break;
             }
 

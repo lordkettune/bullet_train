@@ -35,7 +35,7 @@ BT_API bt_Context* bt_newcontext()
     for (int i = 0; i != BT_REG_SIZE; ++i) {
         bt->key_regist[i] = NULL;
     }
-    bt->root_meta = struct_newmeta();
+    bt->root_meta = newrootmeta();
     bt->inactive = NULL;
     bt->active = NULL;
     bt->gclist = NULL;
@@ -140,10 +140,9 @@ BT_API void* bt_gcalloc(bt_Context* bt, size_t size, bt_Destructor d)
 /* Creates a new bt_Struct */
 BT_API bt_Struct* bt_newstruct(bt_Context* bt)
 {
-    bt_Struct* st = bt_gcalloc(bt, sizeof(bt_Struct), struct_destroy);
+    bt_Struct* st = bt_gcalloc(bt, sizeof(bt_Struct), destroystruct);
     st->data = malloc(sizeof(bt_Value) * STRUCT_BUF);
-    st->size = 0;
-    st->reserved = STRUCT_BUF;
+    st->size = STRUCT_BUF;
     st->meta = bt->root_meta;
     return st;
 }
